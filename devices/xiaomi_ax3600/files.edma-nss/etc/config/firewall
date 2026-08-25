@@ -180,6 +180,29 @@ config rule
 	option dest_port '853'
 	option target 'DROP'
 
+## Belt and braces behind the NTP hijack: anything the DNAT misses cannot
+## reach a time server through a tunnel either.
+config rule
+	option name 'Drop-NTP-IOT'
+	option src 'iot'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-NTP-GUEST'
+	option src 'guest'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-NTP-PRIVATE'
+	option src 'private'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'DROP'
+
 config rule
 	option name 'Drop-DoH-IOT'
 	option src 'iot'
@@ -437,6 +460,36 @@ config rule
 	option src_port '546-547'
 	option dest_port '546-547'
 	option family 'ipv6'
+	option target 'ACCEPT'
+
+## Clients are DNAT'd to the router by 30-ntphijack.nft; these permit the
+## resulting input. chrony serves them.
+config rule
+	option name 'Allow-SVC-NTP'
+	option src 'svc'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IOT-NTP'
+	option src 'iot'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-GUEST-NTP'
+	option src 'guest'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-PRIVATE-NTP'
+	option src 'private'
+	option proto 'udp'
+	option dest_port '123'
 	option target 'ACCEPT'
 
 config rule
