@@ -6,24 +6,49 @@
 config dnsmasq
 	option domainneeded '1'
 	option boguspriv '1'
-	option filterwin2k '0'
+	option filterwin2k '1'
 	option localise_queries '1'
 	option rebind_protection '1'
 	option rebind_localhost '1'
 	option local '/intra/'
 	option domain 'intra'
 	option expandhosts '1'
-	option nonegcache '0'
+	option nonegcache '1'
 	option authoritative '1'
 	option readethers '1'
 	option leasefile '/tmp/dhcp.leases'
-	option localservice '1'
+	option noresolv '0'
+    option resolvfile '/tmp/resolv.conf.d/resolv.conf.auto'
+    option localservice '1'
 	option ednspacket_max '1232'
+    option dnssec '1'
+    option dnsseccheckunsigned '1'
+    option local '/intra/'
+    option domain 'intra'
+    ## Bind to the four LAN bridges only, never wan or the tunnels.
+	option nonwildcard '1'
+	list interface 'br-svc'
+	list interface 'br-iot'
+	list interface 'br-guest'
+	list interface 'br-private'
+	## picks up /etc/dnsmasq.d/10-doh-nftset.conf (the @doh/@doh6 population)
 	option confdir '/tmp/dnsmasq.d'
-	## picks up /etc/dnsmasq.d/10-doh-nftset.conf
 	list addnmount '/etc/dnsmasq.d'
-	option noresolv '1'
-	list server '192.168.137.2'
+	##
+	## SPLIT-DNS BOOTSTRAP ESCAPE HATCH — do not remove without thinking.
+	## These three domains resolve directly via 1.1.1.1 instead of through
+	## the resolver. That is what lets the router still reach openwrt.org for
+	## updates, raw.githubusercontent for scripts, and ntp.org for time when
+	## the resolver host is down or wg1 is blackholed. Given SVC and IOT share
+	## wg1, a wg1 outage takes DNS out network-wide — these are the crack of
+	## light under that door.
+	list server '/openwrt.org/1.1.1.1'
+	list server '/raw.githubusercontent.com/1.1.1.1'
+	list server '/ntp.org/1.1.1.1'
+	## Upstream resolver. v6 is now the STATIC address, not the SLAAC address
+	## derived from the Pi's MAC — assign fdb6:747a:d337:3::2 on that host.
+    list server '192.168.137.2'
+    list server 'fdb6:747a:d337:3::2'
 
 config dhcp 'svc'
 	option interface 'svc'
@@ -81,18 +106,21 @@ config odhcpd 'odhcpd'
 	option maindhcp '0'
 	option leasefile '/tmp/hosts/odhcpd'
 	option leasetrigger '/usr/sbin/odhcpd-update'
-	option loglevel '4'
+	option loglevel '3'
 
 ## Static leases: copy your `config host` entries from the old /etc/config/dhcp.
 ## They were not in the collected state (MAC/IP pairs, not secrets, but the
-## collector redacted broadly). The resolver must land on 192.168.137.2 —
-## that address is hardcoded in the DNS hijack.
+## collector redacted broadly).
+## The resolver MUST land on 192.168.137.2 — that address is hardcoded in
+## /etc/nftables.d/20-dnshijack.nft. Give it `option hostid '2'` so its v6
+## address is the static fdb6:747a:d337:3::2 rather than a MAC-derived SLAAC
+## address that breaks when you swap the Pi for another device.
 #
 # config host
 #	option name 'resolver'
 #	option mac 'xx:xx:xx:xx:xx:xx'
 #	option ip '192.168.137.2'
-#	option hostid '2'          # gives fdb6:747a:d337:3::2
+#	option hostid '2'
 #	option dns '1'
 
 config host
@@ -103,7 +131,7 @@ config host
         option duid '00010001282ebbd4b827eb6e5aeb'
 
 config host
-        option name 'Hue-Bridge'
+        option name 'hue-Bridge'
         option ip '192.168.32.132'
         option mac 'ec:b5:fa:2a:7b:fd'
         option hostid '7bfd'

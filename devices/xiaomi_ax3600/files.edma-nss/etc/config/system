@@ -1,32 +1,71 @@
-## /etc/config/system
+## /etc/config/system — carried from your 6.1 config.
 
 config system
-	option hostname 'router'
+	option hostname 'XiaoQiang'
 	option timezone 'EET-2EEST,M3.5.0/3,M10.5.0/4'
 	option zonename 'Europe/Bucharest'
-	option log_size '128'
-	option conloglevel '4'
-	option cronloglevel '5'
-	## IMPORTANT: this marker makes the builder's own
-	## devices/common/files/etc/uci-defaults/999-QOL_config exit immediately.
-	##
-	## That script runs at 999, i.e. AFTER 97/98/99, and its first action is
-	##     set firewall.@zone[1].input='DROP'
-	## — a POSITIONAL reference. In upstream's default firewall @zone[1] is
-	## `wan`. In ours the order is wan, svc, iot, guest, private, wireguard,
-	## so @zone[1] is SVC, and it would silently flip svc's input to DROP.
-	##
-	## The script documents this marker as the intended opt-out. The parts of
-	## it worth having are adopted explicitly below and in /etc/config/uhttpd.
+	option ttylogin '0'
+	option log_size '64'
+	option log_proto 'udp'
+	option urandom_seed '1'
+	option zram_comp_algo 'zstd'
+	option conloglevel '5'
+	option cronloglevel '9'
+	option compat_version '1.0'
+	## Makes the builder's devices/common/files/etc/uci-defaults/999-QOL_config
+	## exit immediately. It runs at 999 (after 97/98/99) and its first action is
+	## `set firewall.@zone[1].input='DROP'` — positional. Upstream's @zone[1] is
+	## `wan`; ours is `svc`. The script documents this marker as the opt-out.
+	## Harmless if your fork predates that file.
 	option qol_defaults '1'
 
+## NTP. See also /etc/config/ntpclient, which pins time sync to wg0 — that
+## binding is the reason sysntpd's server list is not the whole story here.
 config timeserver 'ntp'
+	list server '0.pool.ntp.org'
+	list server '1.pool.ntp.org'
+	list server '2.pool.ntp.org'
+	list server '3.pool.ntp.org'
+
+##############################################################################
+## LEDs
+##############################################################################
+## WARNING — verify these after first boot.
+## `sysfs 'ath10k-phy0'` and `dev 'phy0-ap0'` assume the ath10k IoT radio is
+## phy0. On this build upstream's static wireless declares radio0 = ath11k 5G
+## and radio1 = ath11k 2.4G, so the ath10k is likely phy2 (or absent). Check:
+##     ls -l /sys/class/leds/ | grep -i ath10k
+##     iw dev
+## and fix `sysfs`/`dev` to match, or the IOT LED silently does nothing.
+
+config led 'led_wan'
+	option trigger 'netdev'
+	option sysfs 'ath10k-phy0'
+	option dev 'phy0-ap0'
+	option name 'IOT'
+	list mode 'tx'
+	list mode 'rx'
+
+config led
+	option sysfs 'blue:network'
+	option trigger 'netdev'
+	option dev 'wan'
+	list mode 'tx'
+	list mode 'rx'
+	option name 'WAN - RX/TX'
+
+config led
+	option trigger 'netdev'
+	option dev 'wan'
+	list mode 'link'
+	option sysfs 'blue:system'
+	option name 'WAN - Link On'
+
+## Requires rng-tools, which I had pruned — restored in the package list.
+## Note: on 6.18 the entropy pools are unified, so rngd reading /dev/urandom
+## and writing back to it is a no-op. `urandom_seed '1'` above is the part
+## that actually does something. Kept because it is your config; safe to drop
+## along with CONFIG_PACKAGE_rng-tools if you want it gone.
+config rngd
 	option enabled '1'
-	## Adopted from 999-QOL_config: serve time to LAN clients locally. With
-	## every zone egressing via WireGuard, a local NTP server means clients
-	## are not each opening their own tunnel-bound time sync.
-	option enable_server '1'
-	list server '0.openwrt.pool.ntp.org'
-	list server '1.openwrt.pool.ntp.org'
-	list server '2.openwrt.pool.ntp.org'
-	list server '3.openwrt.pool.ntp.org'
+	option device '/dev/urandom'

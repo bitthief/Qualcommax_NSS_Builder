@@ -1,0 +1,13 @@
+## /etc/config/openssl — carried from your 6.1 config.
+##
+## The devcrypto engine routes OpenSSL through /dev/crypto (kmod-cryptodev),
+## which is backed by the kernel crypto API. On this SoC that means the A53
+## ARMv8 crypto extensions do the AES/SHA — no NSS involved.
+##
+## NOT backed by qca-nss-crypto: the cryptoapi shim that would register NSS
+## algorithms into the crypto API is flagged @BROKEN in qosmio's feed and is
+## absent from the edma-nss feed entirely. Inline CPU crypto is the faster
+## path here regardless.
+
+config engine 'devcrypto'
+	option enabled '1'
