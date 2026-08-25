@@ -1,0 +1,33 @@
+inotify-tools: make the install hook idempotent
+
+The upstream install-exec-hook creates the fsnotifywait/fsnotifywatch symlinks
+with a bare $(LN_S), which fails with "File exists" whenever Build/Install runs
+a second time over a PKG_INSTALL_DIR that already has them. That happens on any
+rebuild that re-enters the install step without a clean -- and in particular on
+the -j1 diagnostic retry after a parallel build failure, where it masks the real
+error with an unrelated one.
+
+$(LN_S) is `ln -s`, so -f makes it replace rather than refuse. The package sets
+PKG_FIXUP:=autoreconf, so patching Makefile.am is sufficient; Makefile.in and
+Makefile are regenerated from it.
+
+Verified: the inner patch applies cleanly to the pinned 4.25.9.0 tarball, and
+this outer patch applies cleanly to the packages feed at master.
+
+diff -ruN feedA/utils/inotify-tools/patches/110-idempotent-install-hook.patch feedB/utils/inotify-tools/patches/110-idempotent-install-hook.patch
+--- a/utils/inotify-tools/patches/110-idempotent-install-hook.patch	1970-01-01 00:00:00.000000000 +0000
++++ b/utils/inotify-tools/patches/110-idempotent-install-hook.patch	2026-08-25 16:57:41.165113482 +0000
+@@ -0,0 +1,13 @@
++--- a/src/Makefile.am
+++++ b/src/Makefile.am
++@@ -22,8 +22,8 @@ endif
++ 
++ install-exec-hook:
++ 	cd $(DESTDIR)$(bindir) && \
++-	$(LN_S) inotifywait fsnotifywait && \
++-	$(LN_S) inotifywatch fsnotifywatch
+++	$(LN_S) -f inotifywait fsnotifywait && \
+++	$(LN_S) -f inotifywatch fsnotifywatch
++ 
++ uninstall-hook:
++ 	rm -f $(DESTDIR)$(bindir)/{fsnotifywait,fsnotifywatch}
