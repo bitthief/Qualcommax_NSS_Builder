@@ -164,22 +164,45 @@ config interface 'svc'
 ## Peers, private keys, PSKs and endpoints are applied post-flash from your
 ## BitLocker stick. See inject-secrets.sh.
 
+## Per-interface: addresses, dns, private_key and peers are ALL injected
+## post-flash by inject-secrets.sh — they are per-key assignments from the
+## provider and belong with the key, not in a build artifact.
+##
+## force_link '1' is load-bearing for fail-closed. Without it netifd tears the
+## interface down when the tunnel drops, its routes vanish, and the lookup
+## falls back to the main table. With it, the interface and route persist and
+## the packet is dropped instead of re-routed. That is the innermost of three
+## layers: force_link, then pbr strict_enforcement, then the firewall having
+## no LAN->wan forwarding at all.
+##
+## peerdns '0' keeps the provider's resolvers out of the router's resolv.conf;
+## the explicit `list dns` entries are injected alongside the addresses.
+
 config interface 'wg0'
 	option proto 'wireguard'
 	option mtu '1320'
 	option listen_port '31337'
+	option force_link '1'
+	option peerdns '0'
+	## nohostroute must stay 0: netifd adds a host route to each peer endpoint
+	## via the current default gateway. Suppress it and the encapsulated
+	## packets get policy-routed into the tunnel they are meant to carry.
 	option nohostroute '0'
 
 config interface 'wg1'
 	option proto 'wireguard'
 	option mtu '1320'
 	option listen_port '31338'
+	option force_link '1'
+	option peerdns '0'
 	option nohostroute '0'
 
 config interface 'wg2'
 	option proto 'wireguard'
 	option mtu '1320'
 	option listen_port '31339'
+	option force_link '1'
+	option peerdns '0'
 	option nohostroute '0'
 
 config interface 'wg60'
