@@ -122,7 +122,7 @@ config host
 	option name 'pihole'
 	option ip '192.168.137.2'
 	option mac 'b8:27:eb:6e:5a:eb'
-	option hostid '0aeb'
+	option hostid '2'
 	option duid '00010001282ebbd4b827eb6e5aeb'
 
 config host
