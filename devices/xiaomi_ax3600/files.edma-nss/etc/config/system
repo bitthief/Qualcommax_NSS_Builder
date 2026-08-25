@@ -1,0 +1,32 @@
+## /etc/config/system
+
+config system
+	option hostname 'router'
+	option timezone 'EET-2EEST,M3.5.0/3,M10.5.0/4'
+	option zonename 'Europe/Bucharest'
+	option log_size '128'
+	option conloglevel '4'
+	option cronloglevel '5'
+	## IMPORTANT: this marker makes the builder's own
+	## devices/common/files/etc/uci-defaults/999-QOL_config exit immediately.
+	##
+	## That script runs at 999, i.e. AFTER 97/98/99, and its first action is
+	##     set firewall.@zone[1].input='DROP'
+	## — a POSITIONAL reference. In upstream's default firewall @zone[1] is
+	## `wan`. In ours the order is wan, svc, iot, guest, private, wireguard,
+	## so @zone[1] is SVC, and it would silently flip svc's input to DROP.
+	##
+	## The script documents this marker as the intended opt-out. The parts of
+	## it worth having are adopted explicitly below and in /etc/config/uhttpd.
+	option qol_defaults '1'
+
+config timeserver 'ntp'
+	option enabled '1'
+	## Adopted from 999-QOL_config: serve time to LAN clients locally. With
+	## every zone egressing via WireGuard, a local NTP server means clients
+	## are not each opening their own tunnel-bound time sync.
+	option enable_server '1'
+	list server '0.openwrt.pool.ntp.org'
+	list server '1.openwrt.pool.ntp.org'
+	list server '2.openwrt.pool.ntp.org'
+	list server '3.openwrt.pool.ntp.org'
