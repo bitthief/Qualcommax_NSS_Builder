@@ -1,0 +1,33 @@
+## DNS hijack - force every zone through Pi-hole.
+##
+## CHANGES vs the 6.1 version:
+##  1. `ether saddr` returns REMOVED. They were spoofable from inside a zone:
+##     an appliance forging the resolver's MAC evaded the redirect entirely.
+##     The IP and IPv6 returns already cover every legitimate case. One of
+##     them was also broken - it referenced 6a:0a:9e:4b:ee:ff while the wan
+##     device MAC is 6a:0a:9e:4b:ef:ef, so it never matched anything.
+##  2. The resolver's v6 target is now a STATIC address, not the SLAAC
+##     address derived from the Raspberry Pi's MAC. Assign
+##     fdb6:747a:d337:3::2 on the resolver host. Survives a hardware swap.
+##  3. The commented-out mark/masquerade hairpin block is dropped. If you
+##     want hairpin NAT later that is a fresh design, not a half-finished one.
+##
+## RESOLVER ADDRESSES - change in one place if the host changes:
+##   v4: 192.168.137.2
+##   v6: fdb6:747a:d337:3::2
+
+chain dnshijack {
+  ip  saddr { 192.168.137.1, 192.168.137.2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
+  ip  daddr { 192.168.137.1, 192.168.137.2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
+  ip6 saddr { fdb6:747a:d337:3::1, fdb6:747a:d337:3::2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
+  ip6 daddr { fdb6:747a:d337:3::1, fdb6:747a:d337:3::2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
+
+  dnat ip  to 192.168.137.2       comment "!fw4: DNSHIJACK - redirect to resolver"
+  dnat ip6 to fdb6:747a:d337:3::2 comment "!fw4: DNSHIJACK - redirect to resolver"
+}
+
+chain dstnat {
+  type nat hook prerouting priority -100; policy accept;
+  iifname { "br-iot", "br-guest", "br-private", "br-svc" } udp dport { 53, 853 } jump dnshijack comment "!fw4: DNSHIJACK"
+  iifname { "br-iot", "br-guest", "br-private", "br-svc" } tcp dport { 53, 853 } jump dnshijack comment "!fw4: DNSHIJACK"
+}

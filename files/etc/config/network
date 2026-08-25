@@ -1,0 +1,203 @@
+## /etc/config/network
+## Ported from the 6.1 build. Changes vs. current are marked [CHANGED].
+
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option ula_prefix 'fdb6:747a:d337::/48'
+	# [CHANGED] was '1'. netifd's steering fights the NSS RPS mask; nss-tools
+	# forces this off at runtime anyway, so set it explicitly to stop them
+	# arguing on every interface event.
+	option packet_steering '0'
+
+##############################################################################
+## Wired ports
+##############################################################################
+## [CHANGED] rpfilter dropped throughout. Strict reverse-path filtering and
+## policy routing into multiple tunnels are a bad pair: strict validates the
+## return path against the main table, which pbr deliberately diverges from.
+## Loose (2) is set globally in sysctl.d and keeps the anti-spoofing you want.
+
+config device
+	option name 'lan1'
+	option macaddr '52:AA:09:87:24:E1'
+	option multicast_router '1'
+	option multicast_fast_leave '1'
+
+config device
+	option name 'lan2'
+	option macaddr '52:AA:09:87:24:E2'
+	option multicast_router '1'
+	option multicast_fast_leave '1'
+
+config device
+	option name 'lan3'
+	option macaddr '52:AA:09:87:24:E3'
+	option multicast_router '1'
+	option multicast_fast_leave '1'
+
+config device
+	option name 'wan'
+	option macaddr '6A:0A:9E:4B:EF:EF'
+	option acceptlocal '1'
+	option multicast '0'
+
+##############################################################################
+## Bridges — one physical port per zone, guest is wireless-only
+##############################################################################
+## [CHANGED] stp '1' removed from all four. Each bridge has a single physical
+## port; no loop is constructible without external hardware. What STP costs
+## you is forwarding delay on every port and VAP state change, i.e. slower
+## association, every single day.
+
+config device
+	option name 'br-svc'
+	option type 'bridge'
+	list ports 'lan1'
+	option mtu '1500'
+	option macaddr '52:AA:09:87:24:C6'
+	option igmp_snooping '1'
+	option bridge_empty '1'
+
+config device
+	option name 'br-private'
+	option type 'bridge'
+	list ports 'lan2'
+	option mtu '1500'
+	option macaddr '52:AA:09:87:24:C5'
+	option igmp_snooping '1'
+	option bridge_empty '1'
+
+config device
+	option name 'br-iot'
+	option type 'bridge'
+	list ports 'lan3'
+	option mtu '1500'
+	option macaddr '52:AA:09:87:24:C3'
+	option igmp_snooping '1'
+	option bridge_empty '1'
+
+## [CHANGED] declared explicitly. Previously implicit, which meant its
+## existence depended on netifd inferring it.
+config device
+	option name 'br-guest'
+	option type 'bridge'
+	option mtu '1500'
+	option macaddr '52:AA:09:87:24:C4'
+	option igmp_snooping '1'
+	option bridge_empty '1'
+
+##############################################################################
+## WAN
+##############################################################################
+
+config interface 'wan'
+	option device 'wan'
+	option proto 'dhcp'
+
+config interface 'wan6'
+	option device 'wan'
+	option proto 'dhcpv6'
+
+##############################################################################
+## Zones
+##############################################################################
+## [CHANGED] ip6hint added to all four. Your /64s are currently assigned in
+## netifd allocation order, which happens to give guest :0, iot :1,
+## private :2, svc :3. After a clean -n flash that order is NOT guaranteed.
+## If it shuffles, all four IPv6 pbr rules point at the wrong zones and the
+## DNS hijack's Pi-hole address stops being Pi-hole — silently, because v4
+## keeps working. These four lines make it deterministic.
+
+config interface 'guest'
+	option proto 'static'
+	option device 'br-guest'
+	option ipaddr '192.168.33.1'
+	option netmask '255.255.255.0'
+	option ip6assign '64'
+	option ip6hint '0'
+	option mtu '1500'
+
+config interface 'iot'
+	option proto 'static'
+	option device 'br-iot'
+	option ipaddr '192.168.32.1'
+	option netmask '255.255.255.0'
+	option ip6assign '64'
+	option ip6hint '1'
+
+config interface 'private'
+	option proto 'static'
+	option device 'br-private'
+	option ipaddr '192.168.37.1'
+	option netmask '255.255.255.0'
+	option ip6assign '64'
+	option ip6hint '2'
+
+config interface 'svc'
+	option proto 'static'
+	option device 'br-svc'
+	option ipaddr '192.168.137.1'
+	option netmask '255.255.255.0'
+	option ip6assign '64'
+	option ip6hint '3'
+
+##############################################################################
+## WireGuard
+##############################################################################
+## MTU kept at 1320 for the migration — one variable at a time. Once the port
+## is verified, test 1420: WireGuard here is packet-rate-bound, not
+## bandwidth-bound, so ~7.5% fewer packets for the same bytes is close to a
+## straight throughput win. Validate with `ping -M do -s 1392 <endpoint>` and
+## watch for handshake failures — 15-wan.nft drops fragments.
+##
+## PRIVATE -> wg0 | SVC + IOT -> wg1 | GUEST -> wg2
+##
+## NO KEY MATERIAL IN THIS FILE. Interfaces are declared without private_key
+## and carry no peers; they will fail to come up until inject-secrets.sh runs.
+## That failure mode is correct — fail-closed means no tunnel, no egress.
+##
+## Peers, private keys, PSKs and endpoints are applied post-flash from your
+## BitLocker stick. See inject-secrets.sh.
+
+config interface 'wg0'
+	option proto 'wireguard'
+	option mtu '1320'
+	option listen_port '31337'
+	option nohostroute '0'
+
+config interface 'wg1'
+	option proto 'wireguard'
+	option mtu '1320'
+	option listen_port '31338'
+	option nohostroute '0'
+
+config interface 'wg2'
+	option proto 'wireguard'
+	option mtu '1320'
+	option listen_port '31339'
+	option nohostroute '0'
+
+config interface 'wg60'
+	option proto 'static'
+	option device '@wg0'
+
+config interface 'wg61'
+	option proto 'static'
+	option device '@wg1'
+
+config interface 'wg62'
+	option proto 'static'
+	option device '@wg2'
+
+##############################################################################
+## NSS ingress shaping helper (present in the base builder image)
+##############################################################################
+
+config interface 'nssifb'
+	option device 'nssifb'
+	option proto 'none'

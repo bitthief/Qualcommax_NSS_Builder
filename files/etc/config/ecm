@@ -1,0 +1,9 @@
+## /etc/config/ecm
+config general 'general'
+	## Your own option, from Feb 2023, still in qca-nss-ecm.init today.
+	## Default 0. Explicit here because it now controls the
+	## bridge-nf-call-* sysctls at runtime — which is what your
+	## /etc/sysctl.d/11-br-netfilter.conf was trying and failing to do
+	## (qca-nss-ecm.conf loaded after it and won the race).
+	option enable_bridge_filtering '0'
+	option acceleration_engine 'auto'

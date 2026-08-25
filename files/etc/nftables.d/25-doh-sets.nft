@@ -1,0 +1,21 @@
+## Named sets for known DoH endpoints, referenced by the Drop-DoH-* rules in
+## /etc/config/firewall. Populated at runtime by dnsmasq's nftset= directives
+## (see /etc/dnsmasq.d/10-doh-nftset.conf).
+##
+## This replaces the whole ipset-dns + 60-ipset-doh + 70-ipset-setup +
+## /etc/firewall.d/ipset-doh apparatus with a config line, and lives in
+## fw4's own table instead of a parallel ipset universe.
+
+set doh {
+  type ipv4_addr
+  flags interval,timeout
+  timeout 24h
+  auto-merge
+}
+
+set doh6 {
+  type ipv6_addr
+  flags interval,timeout
+  timeout 24h
+  auto-merge
+}

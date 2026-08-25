@@ -1,0 +1,22 @@
+## Ported unchanged from the 6.1 build. All of this expresses fine in fw4.
+##
+## NOTE: the fragment drop interacts with the WireGuard MTU test. At 1320 you
+## will never fragment. If you raise to 1420 and see intermittent handshake
+## failures, this rule is the first suspect.
+
+chain input_wan {
+  # Drop all fragments
+  ip frag-off & 0x1fff != 0 counter drop
+
+  # Drop XMAS packets
+  tcp flags & (fin|syn|rst|psh|ack|urg) == fin|syn|rst|psh|ack|urg counter drop
+
+  # Drop NULL packets
+  tcp flags & (fin|syn|rst|psh|ack|urg) == 0x0 counter drop
+
+  # Drop uncommon MSS values
+  tcp flags syn tcp option maxseg size 1-535 counter drop
+
+  # RFC2827 / BCP38 - bogons and martians
+  ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } counter drop
+}
