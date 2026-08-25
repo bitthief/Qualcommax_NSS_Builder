@@ -1,0 +1,96 @@
+## /etc/config/chrony
+##
+## Replaces busybox sysntpd. Two things it buys you that sysntpd cannot:
+##
+##  1. NTS (RFC 8915). TLS 1.3 key establishment on TCP/4460, then AEAD-
+##     authenticated NTP on UDP/123. An on-path attacker — your ISP, a hostile
+##     upstream, anyone between you and the server — cannot forge time.
+##     This is the "NTP over TLS equivalent" you were thinking of.
+##  2. It serves time to the LAN, so clients never talk to the internet at all
+##     and cannot be fed bad time by anyone but you.
+##
+## SOURCE DIVERSITY IS THE POINT. Three operators, three jurisdictions, three
+## networks. NTS defeats tampering but nothing defeats blocking, so the
+## defence against a targeted block is that an attacker must silence all
+## three, and `minsources 2` in /etc/chrony.conf means two must agree before
+## the clock moves at all.
+
+config server
+	option hostname 'time.cloudflare.com'
+	option nts '1'
+	option iburst '1'
+	option minpoll '6'
+	option maxpoll '10'
+
+config server
+	option hostname 'nts.netnod.se'
+	option nts '1'
+	option iburst '1'
+	option minpoll '6'
+	option maxpoll '10'
+
+config server
+	option hostname 'ptbtime1.ptb.de'
+	option nts '1'
+	option iburst '1'
+	option minpoll '6'
+	option maxpoll '10'
+
+## Unauthenticated fallback, DISABLED. Enable only if all three NTS sources
+## are unreachable and you would rather have approximate time than none —
+## understanding that an on-path attacker can then set your clock.
+config pool
+	option hostname '0.openwrt.pool.ntp.org'
+	option nts '0'
+	option iburst '1'
+	option maxsources '3'
+	option disabled '1'
+
+##############################################################################
+## NTS certificate bootstrap
+##############################################################################
+## The chicken-and-egg: NTS-KE is TLS, TLS validates certs against the clock,
+## and the AX3600 has no battery-backed RTC — so at cold boot the clock is
+## whatever sysfixtime restored from /etc mtimes, possibly months stale.
+##
+## rtccheck '1' makes the init script emit `nocerttimecheck 1` when no RTC
+## device is present, which lets chrony skip the cert time check for exactly
+## one KE exchange. After the first step, checks are enforced normally.
+config nts 'nts'
+	option rtccheck '1'
+	option systemcerts '1'
+
+##############################################################################
+## Serve time to the LAN
+##############################################################################
+## Clients are DNAT'd here by /etc/nftables.d/30-ntphijack.nft, so this is
+## not optional — it is where their queries land.
+##
+## No amplification exposure: the NTP reflection attacks you remember were
+## ntpd's mode-7 `monlist`, which chrony has never implemented. The stock
+## /etc/chrony.conf also sets `noclientlog`, and the firewall permits UDP/123
+## input from the four LAN zones only, never from wan.
+config allow
+	option interface 'svc'
+
+config allow
+	option interface 'iot'
+
+config allow
+	option interface 'guest'
+
+config allow
+	option interface 'private'
+
+##############################################################################
+## Stepping limits
+##############################################################################
+## Step the clock only in the first 5 updates, and only for offsets above 1s.
+## After that, slew. A source that suddenly claims a wildly different time
+## cannot yank the clock — it just fails to agree with the other two.
+config makestep 'makestep'
+	option threshold '1.0'
+	option limit '5'
+
+config dhcp_ntp_server 'dhcp_ntp_server'
+	option disabled '1'

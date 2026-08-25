@@ -96,3 +96,30 @@ config policy
 ## healthy tunnels and lose name resolution anyway. Failing DNS closed is
 ## defensible; the point is the blast radius crosses your zone boundaries.
 ## The dedicated DNS/IOT tunnel you mentioned would decouple this.
+
+##############################################################################
+## OPTIONAL: tunnel the router's own NTP queries
+##############################################################################
+## Disabled by design. Enable only if you have decided the bootstrap risk is
+## acceptable.
+##
+## THE TRAP: with strict_enforcement='1', if wg0 is down this policy drops the
+## NTP queries rather than letting them out via wan. A router whose clock has
+## drifted cannot validate TLS, which means it cannot reach the apk repo or
+## anything else needed to fix the tunnel. You would be one tunnel outage away
+## from a box that can only be repaired over SSH from the LAN.
+##
+## Your /etc/config/dhcp already carries `list server '/ntp.org/1.1.1.1'` —
+## a split-DNS entry that resolves NTP hostnames outside Pi-hole precisely so
+## time sync keeps working when the resolver path is broken. That is the same
+## reasoning applied one layer up, and it argues for leaving this off.
+##
+## If you enable it, consider also setting strict_enforcement='0' or adding a
+## fallback, so a wg0 outage degrades to clear-WAN NTP rather than no NTP.
+
+config policy
+	option name 'Router NTP via wg0'
+	option proto 'udp'
+	option dest_port '123'
+	option interface 'wg0'
+	option enabled '0'

@@ -1,0 +1,29 @@
+## NTP hijack — same shape as the DNS hijack, same reasoning.
+##
+## Every client NTP query is DNAT'd to the router, which serves time from
+## chrony. Clients therefore never reach the internet for time, cannot be fed
+## bad time by an on-path attacker, and cannot leak to WAN by hardcoding
+## their own server. The router's own upstream sync is NTS-authenticated.
+##
+## Returns for the gateway address of each zone so the router's own traffic
+## and any deliberate direct query are not redirected into themselves.
+
+chain ntphijack {
+  ip  daddr { 192.168.32.1, 192.168.33.1, 192.168.37.1, 192.168.137.1 } return comment "!fw4: NTPHIJACK - already the gateway"
+  ip6 daddr { fdb6:747a:d337:0::1, fdb6:747a:d337:1::1, fdb6:747a:d337:2::1, fdb6:747a:d337:3::1 } return comment "!fw4: NTPHIJACK - already the gateway"
+
+  meta iifname "br-svc"     dnat ip to 192.168.137.1 comment "!fw4: NTPHIJACK"
+  meta iifname "br-iot"     dnat ip to 192.168.32.1  comment "!fw4: NTPHIJACK"
+  meta iifname "br-guest"   dnat ip to 192.168.33.1  comment "!fw4: NTPHIJACK"
+  meta iifname "br-private" dnat ip to 192.168.37.1  comment "!fw4: NTPHIJACK"
+
+  meta iifname "br-svc"     dnat ip6 to fdb6:747a:d337:3::1 comment "!fw4: NTPHIJACK"
+  meta iifname "br-iot"     dnat ip6 to fdb6:747a:d337:1::1 comment "!fw4: NTPHIJACK"
+  meta iifname "br-guest"   dnat ip6 to fdb6:747a:d337:0::1 comment "!fw4: NTPHIJACK"
+  meta iifname "br-private" dnat ip6 to fdb6:747a:d337:2::1 comment "!fw4: NTPHIJACK"
+}
+
+chain dstnat {
+  type nat hook prerouting priority -100; policy accept;
+  iifname { "br-iot", "br-guest", "br-private", "br-svc" } udp dport 123 jump ntphijack comment "!fw4: NTPHIJACK"
+}
