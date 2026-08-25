@@ -1,0 +1,5 @@
+## /etc/config/nss
+config general 'general'
+	## Flip to '1' ONLY after the config port is verified on the host path.
+	## Survives sysupgrade by design; this is the universal recovery flag.
+	option enabled '0'

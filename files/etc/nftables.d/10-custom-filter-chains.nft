@@ -1,0 +1,23 @@
+## The intra-bridge accepts that lived here are DISABLED, not deleted.
+##
+## They existed because bridge-nf-call-iptables was on: your
+## /etc/sysctl.d/11-br-netfilter.conf set it to 0, the qca-nss-ecm package
+## shipped /etc/sysctl.d/qca-nss-ecm.conf setting it back to 1, and sysctl.d
+## loads lexically - so the package file loaded last and won. With
+## br_netfilter active, intra-bridge frames traversed the IP forward hook and
+## hit fw4's DROP policy; these rules caught them at priority -1.
+##
+## On this build the race is gone. qca-nss-ecm.init sets those sysctls at
+## runtime, gated on ecm.general.enable_bridge_filtering, which is '0'.
+## Frames stay on the bridge path and never reach the forward hook. Under NSS
+## hardware bridging they never reach the host at all.
+##
+## Uncomment ONLY if you set enable_bridge_filtering to '1'.
+#
+# chain user_pre_forward {
+#     type filter hook forward priority -1; policy accept;
+#     iifname "br-guest"   oifname "br-guest"   accept;
+#     iifname "br-iot"     oifname "br-iot"     accept;
+#     iifname "br-private" oifname "br-private" accept;
+#     iifname "br-svc"     oifname "br-svc"     accept;
+# }

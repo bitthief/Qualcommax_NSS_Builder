@@ -1,0 +1,932 @@
+## /etc/config/firewall
+##
+## RULE ORDER MATTERS. fw4 emits rules in file order, then the `config
+## forwarding` jumps last. Every Drop-* rule must therefore appear BEFORE the
+## Allow-*-to-WIREGUARD rule for its zone, or it is shadowed and dead.
+## That was the bug in the old config — see the note at DoH/DoT below.
+
+config defaults
+	option input 'DROP'
+	option output 'ACCEPT'
+	option forward 'DROP'
+	option synflood_protect '1'
+	# [CHANGED] both were '1'. An nft flowtable is a competing forwarding
+	# engine and fights ECM. Low CPU alone does not prove NSS is doing the
+	# work; verify with `nft list ruleset | grep -i flowtable` (must be empty).
+	option flow_offloading '0'
+	option flow_offloading_hw '0'
+
+##############################################################################
+## Zones
+##############################################################################
+## masq_allow_invalid kept ONLY on wan and wireguard. On the four LAN zones
+## masq is '0', so the flag has never done anything there.
+##
+## NOTE (not changed, flagged for later): svc/iot/private have input ACCEPT.
+## That means any appliance in IOT can reach the router's SSH and LuCI on
+## 192.168.32.1. Tightening iot to DROP (the DHCP/DHCPv6/NDP rules below
+## already cover what clients legitimately need, plus NTP) is a real
+## hardening win — but it is a behaviour change, so it is NOT in this
+## migration. One line when you want it.
+
+config zone
+	option name 'wan'
+	option input 'DROP'
+	option output 'ACCEPT'
+	option forward 'DROP'
+	option mtu_fix '1'
+	option masq '1'
+	option masq_allow_invalid '1'
+	option masq6 '1'
+	option masq6_privacy '1'
+	option network 'wan wan6'
+
+config zone
+	option name 'svc'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	option mtu_fix '1'
+	option masq '0'
+	option masq6 '0'
+	option masq6_privacy '1'
+	option network 'svc'
+
+config zone
+	option name 'iot'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	option mtu_fix '1'
+	option masq '0'
+	option masq6 '0'
+	option masq6_privacy '1'
+	option network 'iot'
+
+config zone
+	option name 'guest'
+	option input 'DROP'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	option mtu_fix '1'
+	option masq '0'
+	option masq6 '0'
+	option masq6_privacy '1'
+	option network 'guest'
+
+config zone
+	option name 'private'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	option mtu_fix '1'
+	option masq '0'
+	option masq6 '0'
+	option masq6_privacy '1'
+	option network 'private'
+
+config zone
+	option name 'wireguard'
+	option input 'DROP'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	option mtu_fix '1'
+	option masq '1'
+	option masq_allow_invalid '1'
+	option network 'wg0 wg60 wg1 wg61 wg2 wg62'
+
+##############################################################################
+## Forwardings — this is what makes fail-closed structural
+##############################################################################
+## No LAN zone forwards to `wan`. Only `wireguard -> wan`, carrying the
+## encapsulated tunnel traffic. So a tunnel dropping cannot leak to WAN even
+## if policy routing misfires: the firewall stops it regardless of routing.
+##
+## [CHANGED] `guest -> iot` blanket forwarding REMOVED. It accepted
+## everything, which made the narrow-looking HTTP/HTTPS rule above it
+## decorative. Guest now reaches IOT only via the explicit rules below.
+
+config forwarding
+	option src 'svc'
+	option dest 'wireguard'
+
+config forwarding
+	option src 'iot'
+	option dest 'svc'
+
+config forwarding
+	option src 'iot'
+	option dest 'wireguard'
+
+config forwarding
+	option src 'guest'
+	option dest 'svc'
+
+config forwarding
+	option src 'guest'
+	option dest 'wireguard'
+
+config forwarding
+	option src 'private'
+	option dest 'svc'
+
+config forwarding
+	option src 'private'
+	option dest 'iot'
+
+config forwarding
+	option src 'private'
+	option dest 'wireguard'
+
+config forwarding
+	option src 'wireguard'
+	option dest 'wan'
+
+##############################################################################
+## SECTION 1 — DoH / DoT blocking
+##############################################################################
+## THESE MUST COME FIRST.
+##
+## In the old config these sat below the Allow-*-to-WIREGUARD rules, which
+## are unconditional jumps to accept_to_wireguard. Tunnel-bound DoH/DoT was
+## therefore accepted before any drop rule saw it — and since no zone
+## forwards to wan, *every* egress path is tunnel-bound. The DoH blocking
+## has never actually blocked anything. Ordering them first fixes that.
+##
+## [CHANGED] -to-WIREGUARD variants added for iot and guest. Previously only
+## private had them, and even those were shadowed.
+
+config rule
+	option name 'Drop-DoT-IOT'
+	option src 'iot'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '853'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoT-GUEST'
+	option src 'guest'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '853'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoT-PRIVATE'
+	option src 'private'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '853'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH-IOT'
+	option src 'iot'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH6-IOT'
+	option src 'iot'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh6'
+	option family 'ipv6'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH-GUEST'
+	option src 'guest'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH6-GUEST'
+	option src 'guest'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh6'
+	option family 'ipv6'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH-PRIVATE'
+	option src 'private'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH6-PRIVATE'
+	option src 'private'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh6'
+	option family 'ipv6'
+	option target 'DROP'
+
+##############################################################################
+## SECTION 2 — Router input
+##############################################################################
+
+config rule
+	option name 'Allow-DHCP-Renew'
+	option src 'wan'
+	option proto 'udp'
+	option dest_port '68'
+	option target 'ACCEPT'
+	option family 'ipv4'
+
+config rule
+	option name 'Allow-DHCPv6'
+	option src 'wan'
+	option proto 'udp'
+	option dest_port '546'
+	option target 'ACCEPT'
+	option family 'ipv6'
+
+config rule
+	option name 'Allow-ICMP-IPv4-Input'
+	option src '*'
+	option proto 'icmp'
+	list icmp_type 'echo-request'
+	list icmp_type 'destination-unreachable'
+	list icmp_type 'time-exceeded'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-ICMPv6-Input'
+	option src '*'
+	option proto 'icmp'
+	list icmp_type 'echo-request'
+	list icmp_type 'destination-unreachable'
+	list icmp_type 'packet-too-big'
+	list icmp_type 'time-exceeded'
+	list icmp_type 'bad-header'
+	list icmp_type 'unknown-header-type'
+	list icmp_type 'router-solicitation'
+	list icmp_type 'neighbour-solicitation'
+	list icmp_type 'router-advertisement'
+	list icmp_type 'neighbour-advertisement'
+	option limit '1000/sec'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-ICMPv6-Forward'
+	option src '*'
+	option dest '*'
+	option proto 'icmp'
+	list icmp_type 'echo-request'
+	list icmp_type 'destination-unreachable'
+	list icmp_type 'packet-too-big'
+	list icmp_type 'time-exceeded'
+	list icmp_type 'bad-header'
+	list icmp_type 'unknown-header-type'
+	option limit '1000/sec'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IGMP'
+	option src '*'
+	option proto 'igmp'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-MLD'
+	option src '*'
+	option proto 'icmp'
+	option src_ip 'fe80::/10'
+	list icmp_type '130/0'
+	list icmp_type '131/0'
+	list icmp_type '132/0'
+	list icmp_type '143/0'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Support-UDP-Traceroute'
+	option src 'wan'
+	option dest_port '33434:33689'
+	option proto 'udp'
+	option family 'ipv4'
+	option target 'REJECT'
+	option enabled '0'
+
+config rule
+	option name 'Drop-WAN-RA'
+	option src 'wan'
+	option proto 'icmp'
+	list icmp_type 'router-advertisement'
+	option family 'ipv6'
+	option target 'DROP'
+
+## Per-zone client essentials (DHCP / DHCPv6 / NDP)
+config rule
+	option name 'Allow-SVC-DHCP'
+	option src 'svc'
+	option proto 'udp'
+	option src_port '67-68'
+	option dest_port '67-68'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SVC-DHCPv6'
+	option src 'svc'
+	option proto 'udp'
+	option src_port '546-547'
+	option dest_port '546-547'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SVC-NDP'
+	option src 'svc'
+	option proto 'icmp'
+	list icmp_type 'router-solicitation'
+	list icmp_type 'neighbour-solicitation'
+	list icmp_type 'neighbour-advertisement'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IOT-DHCP'
+	option src 'iot'
+	option proto 'udp'
+	option src_port '67-68'
+	option dest_port '67-68'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IOT-DHCPv6'
+	option src 'iot'
+	option proto 'udp'
+	option src_port '546-547'
+	option dest_port '546-547'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IOT-NDP'
+	option src 'iot'
+	option proto 'icmp'
+	list icmp_type 'router-solicitation'
+	list icmp_type 'neighbour-solicitation'
+	list icmp_type 'neighbour-advertisement'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-GUEST-DHCP'
+	option src 'guest'
+	option proto 'udp'
+	option src_port '67-68'
+	option dest_port '67-68'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-GUEST-DHCPv6'
+	option src 'guest'
+	option proto 'udp'
+	option src_port '546-547'
+	option dest_port '546-547'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-GUEST-NDP'
+	option src 'guest'
+	option proto 'icmp'
+	list icmp_type 'router-solicitation'
+	list icmp_type 'neighbour-solicitation'
+	list icmp_type 'neighbour-advertisement'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-PRIVATE-DHCP'
+	option src 'private'
+	option proto 'udp'
+	option src_port '67-68'
+	option dest_port '67-68'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-PRIVATE-DHCPv6'
+	option src 'private'
+	option proto 'udp'
+	option src_port '546-547'
+	option dest_port '546-547'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-PRIVATE-NDP'
+	option src 'private'
+	option proto 'icmp'
+	list icmp_type 'router-solicitation'
+	list icmp_type 'neighbour-solicitation'
+	list icmp_type 'neighbour-advertisement'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+##############################################################################
+## SECTION 3 — DNS to SVC (the hijack DNATs here; these permit the forward)
+##############################################################################
+
+config rule
+	option name 'Allow-DNS-IOT-to-SVC'
+	option src 'iot'
+	option dest 'svc'
+	list proto 'tcp'
+	list proto 'udp'
+	list dest_port '53'
+	list dest_port '853'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-DNS-GUEST-to-SVC'
+	option src 'guest'
+	option dest 'svc'
+	list proto 'tcp'
+	list proto 'udp'
+	list dest_port '53'
+	list dest_port '853'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-DNS-PRIVATE-to-SVC'
+	option src 'private'
+	option dest 'svc'
+	list proto 'tcp'
+	list proto 'udp'
+	list dest_port '53'
+	list dest_port '853'
+	option target 'ACCEPT'
+
+##############################################################################
+## SECTION 4 — Cross-zone service discovery
+##############################################################################
+## avahi's reflector (enable-reflector=yes) is what actually moves mDNS
+## across these boundaries. These rules permit it.
+
+config rule
+	option name 'Allow-mDNS-SVC-to-IOT'
+	option src 'svc'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS6-SVC-to-IOT'
+	option src 'svc'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS-IOT-to-SVC'
+	option src 'iot'
+	option dest 'svc'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS6-IOT-to-SVC'
+	option src 'iot'
+	option dest 'svc'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS-IOT-to-GUEST'
+	option src 'iot'
+	option dest 'guest'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS6-IOT-to-GUEST'
+	option src 'iot'
+	option dest 'guest'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS-IOT-to-PRIVATE'
+	option src 'iot'
+	option dest 'private'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS6-IOT-to-PRIVATE'
+	option src 'iot'
+	option dest 'private'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS6-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS6-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+## SSDP / UPnP discovery — Philips Hue bridge discovery rides this
+config rule
+	option name 'Allow-SSDP-SVC-to-IOT'
+	option src 'svc'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-IOT-to-SVC'
+	option src 'iot'
+	option dest 'svc'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-IOT-to-GUEST'
+	option src 'iot'
+	option dest 'guest'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-IOT-to-PRIVATE'
+	option src 'iot'
+	option dest 'private'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+## Daikin AC discovery
+config rule
+	option name 'Allow-Daikin-Discovery-Broadcast-IOT-to-GUEST'
+	option src 'iot'
+	option dest 'guest'
+	option proto 'udp'
+	list dest_port '30000'
+	list dest_port '30050'
+	list dest_ip '224.0.0.1'
+	list dest_ip '255.255.255.255'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Daikin-Discovery-Broadcast-IOT-to-PRIVATE'
+	option src 'iot'
+	option dest 'private'
+	option proto 'udp'
+	list dest_port '30000'
+	list dest_port '30050'
+	list dest_ip '224.0.0.1'
+	list dest_ip '255.255.255.255'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Daikin-Discovery-Source-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'udp'
+	list src_port '30000'
+	list src_port '30050'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Daikin-Discovery-Destination-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'udp'
+	list dest_port '30000'
+	list dest_port '30050'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Daikin-Discovery-Source-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'udp'
+	list src_port '30000'
+	list src_port '30050'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Daikin-Discovery-Destination-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'udp'
+	list dest_port '30000'
+	list dest_port '30050'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+##############################################################################
+## SECTION 5 — Device control
+##############################################################################
+
+config rule
+	option name 'Allow-HTTP-HTTPS-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'tcp'
+	list dest_port '80'
+	list dest_port '443'
+	list dest_port '8080'
+	list dest_port '8180'
+	list dest_port '8443'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-HTTP-HTTPS-PRIVATE-to-SVC'
+	option src 'private'
+	option dest 'svc'
+	option proto 'tcp'
+	list dest_port '80'
+	list dest_port '443'
+	list dest_port '8080'
+	list dest_port '8443'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSH-PRIVATE-to-SVC'
+	option src 'private'
+	option dest 'svc'
+	option proto 'tcp'
+	option dest_port '1338'
+	option target 'ACCEPT'
+
+##############################################################################
+## SECTION 6 — GUEST -> IOT, narrowed
+##############################################################################
+## The blanket `guest -> iot` forwarding is gone. These are the explicit
+## permits for the three device families actually in use:
+##   air-Q      : HTTP/HTTPS
+##   Philips Hue: HTTP/HTTPS + SSDP (above) + mDNS (above)
+##   Roborock   : mDNS (above) + miIO local protocol on UDP 54321
+## Anything missed shows up in the logged reject at the tail. Read logread,
+## add a rule, rather than guessing at the IoT protocol surface up front.
+
+config rule
+	option name 'Allow-HTTP-HTTPS-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'tcp'
+	list dest_port '80'
+	list dest_port '443'
+	list dest_port '8080'
+	list dest_port '8180'
+	list dest_port '8443'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Roborock-miIO-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'udp'
+	option dest_port '54321'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-ICMP-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option proto 'icmp'
+	list icmp_type 'echo-request'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Log-Reject-GUEST-to-IOT'
+	option src 'guest'
+	option dest 'iot'
+	option target 'REJECT'
+	option log '1'
+	option log_limit '10/minute'
+
+##############################################################################
+## SECTION 7 — Explicit inter-zone denies (documentation as much as function)
+##############################################################################
+
+config rule
+	option name 'Drop-IOT-to-GUEST'
+	option src 'iot'
+	option dest 'guest'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-IOT-to-PRIVATE'
+	option src 'iot'
+	option dest 'private'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-PRIVATE-to-GUEST'
+	option src 'private'
+	option dest 'guest'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-GUEST-to-PRIVATE'
+	option src 'guest'
+	option dest 'private'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-SVC-to-IOT'
+	option src 'svc'
+	option dest 'iot'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-SVC-to-GUEST'
+	option src 'svc'
+	option dest 'guest'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-SVC-to-PRIVATE'
+	option src 'svc'
+	option dest 'private'
+	option target 'DROP'
+
+##############################################################################
+## SECTION 8 — Zone egress to the tunnels (LAST, so drops above win)
+##############################################################################
+
+config rule
+	option name 'Allow-SVC-to-WIREGUARD'
+	option src 'svc'
+	option dest 'wireguard'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IOT-to-WIREGUARD'
+	option src 'iot'
+	option dest 'wireguard'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-PRIVATE-to-WIREGUARD'
+	option src 'private'
+	option dest 'wireguard'
+	option target 'ACCEPT'
+
+##############################################################################
+## SECTION 9 — Disabled: the escape hatch
+##############################################################################
+## [CHANGED] was live. It is an unconditional jump to accept_to_wan placed
+## above the DoH/DoT drops, so guest's fail-closed property rested on pbr
+## alone rather than on the firewall, unlike the other three zones.
+## Disabled here: flip enabled to '1' if LinkedIn starts objecting to the
+## VPN again, and remember it bypasses the DoH/DoT blocks while it is on.
+
+config rule
+	option name 'Allow-GUEST-to-WAN'
+	option src 'guest'
+	option dest 'wan'
+	list proto 'all'
+	option target 'ACCEPT'
+	option enabled '0'
+
+##############################################################################
+## Includes
+##############################################################################
+## /etc/firewall.d/* is NOT referenced. fw4 never sourced it; those scripts
+## were fw3-era and have been dead since you moved to firewall4.
+
+config include 'nftables_rules'
+	option type 'nftables'
+	option path '/etc/nftables.d'

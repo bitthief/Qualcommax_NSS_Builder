@@ -1,0 +1,98 @@
+## /etc/config/pbr — replaces the entire mwan3 member/policy matrix.
+## Old: 12 members (metric/weight combos) + 8 *_only policies + 10 rules.
+## New: 4 policies + their v6 mirrors + one ignore guard.
+
+config pbr 'config'
+	option enabled '1'
+	## Replaces mwan3's `last_resort 'blackhole'`. If a policy's interface is
+	## down, matching traffic is dropped rather than falling through to the
+	## main table. Belt and braces with the firewall, which already has no
+	## LAN->wan forwarding.
+	option strict_enforcement '1'
+	option resolver_set 'none'
+	option ipv6_enabled '1'
+	option boot_timeout '30'
+	option rule_create_option 'add'
+	option procd_reload_delay '1'
+	option webui_show_ignore_target '1'
+	list ignored_interface 'vpnserver'
+	list supported_interface 'wg0 wg1 wg2'
+
+##############################################################################
+## Guard: keep hijacked DNS out of policy routing
+##############################################################################
+## The DNS hijack DNATs 53/853 to Pi-hole at prerouting (nat, priority -100);
+## pbr marks at mangle prerouting. Post-DNAT that traffic is destined for a
+## connected subnet, but would still carry a mark pointing at a table that
+## cannot route it. This must be the FIRST policy.
+
+config policy
+	option name 'Local subnets - no policy routing'
+	option dest_addr '192.168.32.0/24 192.168.33.0/24 192.168.37.0/24 192.168.137.0/24 fdb6:747a:d337::/48'
+	option interface 'ignore'
+	option enabled '1'
+
+##############################################################################
+## Zone egress — IPv4
+##############################################################################
+
+config policy
+	option name 'PRIVATE via wg0'
+	option src_addr '192.168.37.0/24'
+	option interface 'wg0'
+	option enabled '1'
+
+config policy
+	option name 'SVC via wg1'
+	option src_addr '192.168.137.0/24'
+	option interface 'wg1'
+	option enabled '1'
+
+config policy
+	option name 'IOT via wg1'
+	option src_addr '192.168.32.0/24'
+	option interface 'wg1'
+	option enabled '1'
+
+config policy
+	option name 'GUEST via wg2'
+	option src_addr '192.168.33.0/24'
+	option interface 'wg2'
+	option enabled '1'
+
+##############################################################################
+## Zone egress — IPv6
+##############################################################################
+## Prefix-to-zone mapping is pinned by ip6hint in /etc/config/network.
+## Without those hints these four rules would silently target wrong zones
+## after a clean flash.
+
+config policy
+	option name 'PRIVATE v6 via wg0'
+	option src_addr 'fdb6:747a:d337:2::/64'
+	option interface 'wg0'
+	option enabled '1'
+
+config policy
+	option name 'SVC v6 via wg1'
+	option src_addr 'fdb6:747a:d337:3::/64'
+	option interface 'wg1'
+	option enabled '1'
+
+config policy
+	option name 'IOT v6 via wg1'
+	option src_addr 'fdb6:747a:d337:1::/64'
+	option interface 'wg1'
+	option enabled '1'
+
+config policy
+	option name 'GUEST v6 via wg2'
+	option src_addr 'fdb6:747a:d337:0::/64'
+	option interface 'wg2'
+	option enabled '1'
+
+## NOTE: SVC and IOT share wg1. Pi-hole lives in SVC, and every zone's DNS is
+## hijacked to it — so if wg1 blackholes, PRIVATE (wg0) and GUEST (wg2) keep
+## healthy tunnels and lose name resolution anyway. Failing DNS closed is
+## defensible; the point is the blast radius crosses your zone boundaries.
+## The dedicated DNS/IOT tunnel you mentioned would decouple this.
