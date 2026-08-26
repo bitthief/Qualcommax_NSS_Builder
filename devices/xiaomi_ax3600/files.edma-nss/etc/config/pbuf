@@ -1,0 +1,21 @@
+## /etc/config/pbuf — NSS packet buffer manager and clock policy.
+## Read by /etc/init.d/qca-nss-pbuf. Section name must be 'opt'.
+
+config general 'opt'
+	## Sizes the pbuf pools from available RAM instead of the compiled-in
+	## default. Correct for a 512 MB board running NSS_MEM_PROFILE_MEDIUM.
+	option memory_profile 'auto'
+
+	## BOOLEAN, and the sense is inverted from what the name suggests:
+	##   config_get_bool auto_scale opt auto_scale 0
+	##   sysctl -w dev.nss.clock.auto_scale="$auto_scale"
+	##   [ "$auto_scale" -eq 0 ] && pin the NSS clock to $max_freq
+	##
+	## So '0' means "do not scale — hold the NSS cores at maximum", which is
+	## the performance setting and matches the performance CPU governor. '1'
+	## lets the driver scale the NSS clock with load, saving power at the cost
+	## of a ramp on the first packets of a burst.
+	##
+	## 'auto' is not a valid value here; config_get_bool would read it as 0,
+	## which happens to be what you want, but for the wrong reason.
+	option auto_scale '0'

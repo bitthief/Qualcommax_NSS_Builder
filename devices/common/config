@@ -366,9 +366,40 @@ CONFIG_PACKAGE_openssh-sftp-server=y
 CONFIG_PACKAGE_openssh-keygen=y
 
 ## ======================================================================
+## LuCI modules and themes
+## ======================================================================
+# luci-mod-network is what draws Network -> DHCP and DNS, and Network ->
+# Interfaces. It comes in with `luci`, but pinning it means a dependency change
+# cannot quietly remove the page. (The page vanishing earlier was the unparseable
+# /etc/config/dhcp, not a missing module — LuCI hides what it cannot read.)
+CONFIG_PACKAGE_luci-mod-network=y
+CONFIG_PACKAGE_luci-mod-status=y
+CONFIG_PACKAGE_luci-mod-system=y
+
+# Themes. luci config sets mediaurlbase to material, so that one is required;
+# the others are a few hundred KB each and give you something to switch to.
+CONFIG_PACKAGE_luci-theme-material=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-theme-openwrt-2020=y
+
+## ======================================================================
+## Traffic shaping qdiscs
+## ======================================================================
+# sqm warns that ECN CoDel is unavailable because only the NSS qdiscs are
+# present. These give the host path a real fq_codel/cake with ECN marking, and
+# are what sqm falls back to for any interface the firmware does not shape.
+#
+# Note the NSS 12.5 firmware does not ECN-mark at all, so nssfq_codel on wan
+# stays drop-only regardless — this fixes the warning and the host path, not
+# the offloaded path.
+CONFIG_PACKAGE_kmod-sched-core=y
+CONFIG_PACKAGE_kmod-sched-cake=y
+
+## ======================================================================
 ## Toolbox — CLI only, nothing here binds a socket
 ## ======================================================================
 CONFIG_PACKAGE_tcpdump=y
+CONFIG_PACKAGE_nmap=y
 CONFIG_PACKAGE_iptraf-ng=y
 CONFIG_PACKAGE_arp-scan=y
 CONFIG_PACKAGE_arp-scan-database=y

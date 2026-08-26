@@ -52,17 +52,18 @@ config policy
 	option interface 'wg0'
 	option enabled '1'
 
-## SVC moved off wg1 onto its own tunnel. IOT keeps wg1.
+## SVC on wg1, IOT on wg3 — your assignment, not mine. Either way the two
+## are separated, which was the point of the fourth tunnel.
 config policy
-	option name 'SVC via wg3'
+	option name 'SVC via wg1'
 	option src_addr '192.168.137.0/24'
-	option interface 'wg3'
+	option interface 'wg1'
 	option enabled '1'
 
 config policy
-	option name 'IOT via wg1'
+	option name 'IOT via wg3'
 	option src_addr '192.168.32.0/24'
-	option interface 'wg1'
+	option interface 'wg3'
 	option enabled '1'
 
 config policy
@@ -85,15 +86,15 @@ config policy
 	option enabled '1'
 
 config policy
-	option name 'SVC v6 via wg3'
+	option name 'SVC v6 via wg1'
 	option src_addr 'fdb6:747a:d337:3::/64'
-	option interface 'wg3'
+	option interface 'wg1'
 	option enabled '1'
 
 config policy
-	option name 'IOT v6 via wg1'
+	option name 'IOT v6 via wg3'
 	option src_addr 'fdb6:747a:d337:1::/64'
-	option interface 'wg1'
+	option interface 'wg3'
 	option enabled '1'
 
 config policy

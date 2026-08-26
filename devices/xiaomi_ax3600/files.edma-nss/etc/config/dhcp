@@ -95,6 +95,29 @@ config dhcp 'svc'
 	option ra_preference 'high'
 	option ra_flags 'managed-config other-config'
 	option ndp 'disabled'
+	## NTP is NOT advertised. Option 42 would tell clients where the time
+	## server is; /etc/nftables.d/30-ntphijack.nft DNATs every UDP/123 to the
+	## zone gateway regardless, so advertising it adds a second mechanism that
+	## can disagree with the first. The hijack catches clients with hardcoded
+	## servers too, which option 42 cannot. One mechanism.
+	##
+	## dhcpv4 is deliberately NOT set. dnsmasq serves v4 from start/limit in
+	## each zone below; odhcpd (maindhcp '0') serves v6 only. Your logs settle
+	## it — every DHCPACK is dnsmasq, odhcpd logged nothing.
+	##
+	## ROOT CAUSE of the DHCP outage, since it was not what either of us
+	## thought: UCI aborts an entire file on a malformed line rather than
+	## skipping the bad section. The mangled comment made /etc/config/dhcp
+	## wholly unreadable, so dnsmasq started with NO config and there were no
+	## ranges on any bridge. Enabling the DHCP server from LuCI fixed it
+	## because LuCI rewrote the file through uci, which normalised it and
+	## dropped the bad line — the dhcpv4 option itself did nothing.
+	##
+	## Worth remembering as a class: one bad character anywhere in a UCI file
+	## silently disables every service that reads it.
+	##
+	## Option 6 here and `option dns` below are NOT redundant: option 6 is
+	## DHCPv4, `option dns` feeds RA/DHCPv6. Different families, both needed.
 	list dhcp_option '6,192.168.137.2'
 	list dhcp_option '43,01:04:00:00:00:02'
 	list dhcp_option '44'
@@ -160,15 +183,17 @@ config odhcpd 'odhcpd'
 	option leasetrigger '/usr/sbin/odhcpd-update'
 	option loglevel '3'
 
-config host` sections. The collector
+## Static leases. Your old /etc/config/dhcp had three `config host` sections;
+## they are carried below. The collector
 ## redacted broadly so the MACs did not survive; recover them from the Phase 0
 ## backup:
 ##     tar xzf backup-*.tar.gz -O etc/config/dhcp | awk '/^config host/,/^$/'
 ##
 ## The resolver MUST land on 192.168.137.2 — that address is hardcoded in
-## /etc/nftables.d/20-dnshijack.nft. Give it `option hostid '2'` so its v6
-## address is the static fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb rather than a MAC-derived SLAAC
-## address that breaks when you swap the Pi for the UDOO.
+## /etc/nftables.d/20-dnshijack.nft, and its v6 address is the SLAAC address
+## fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb, which every `option dns` above and the
+## hijack now agree on. hostid is ignored here because odhcpd matches DHCPv6 by
+## DUID and the duid below is not the one NetworkManager sends.
 config host
 	option name 'pihole'
 	option ip '192.168.137.2'
@@ -177,7 +202,7 @@ config host
 	option duid '00010001282ebbd4b827eb6e5aeb'
 
 config host
-	option name 'hue-Bridge'
+	option name 'Hue-Bridge'
 	option ip '192.168.32.132'
 	option mac 'ec:b5:fa:2a:7b:fd'
 	option hostid '7bfd'
