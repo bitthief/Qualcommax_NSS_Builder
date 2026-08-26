@@ -8,7 +8,15 @@ config system
 	option log_size '64'
 	option log_proto 'udp'
 	option urandom_seed '1'
-	option zram_comp_algo 'zstd'
+	## zstd is NOT compiled into this kernel: CONFIG_ZRAM_BACKEND_ZSTD is unset
+	## and ZRAM_BACKEND_* is not exposed as an OpenWrt symbol, so it cannot be
+	## turned on from the builder config — it would need a target kernel config
+	## change, i.e. patching the OpenWrt tree. zram-swap logs "compression
+	## algorithm 'zstd' is not supported" and falls back.
+	## lzo is always available. Check what your kernel actually offers with
+	##   cat /sys/block/zram0/comp_algorithm
+	## and pick from that list if you want something better.
+	option zram_comp_algo 'lzo'
 	option conloglevel '5'
 	option cronloglevel '9'
 	option compat_version '1.0'

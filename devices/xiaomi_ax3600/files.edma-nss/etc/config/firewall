@@ -10,6 +10,12 @@ config defaults
 	option output 'ACCEPT'
 	option forward 'DROP'
 	option synflood_protect '1'
+	## Drops conntrack-INVALID packets instead of letting them reach a zone
+	## chain. Mostly out-of-window TCP and unmatched ICMP errors. Note this is
+	## also the flag that hides late RSTs from asymmetric paths, so if you ever
+	## chase a "connection hangs then dies" bug, turn it off before concluding
+	## it is the tunnel.
+	option drop_invalid '1'
 	# [CHANGED] both were '1'. An nft flowtable is a competing forwarding
 	# engine and fights ECM. Low CPU alone does not prove NSS is doing the
 	# work; verify with `nft list ruleset | grep -i flowtable` (must be empty).
@@ -870,6 +876,34 @@ config rule
 	list dest_port '8080'
 	list dest_port '8180'
 	list dest_port '8443'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-ICMP-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'icmp'
+	list icmp_type 'echo-request'
+	list icmp_type 'echo-reply'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-ICMPv6-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'icmp'
+	list icmp_type 'echo-request'
+	list icmp_type 'echo-reply'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSH-PRIVATE-to-IOT'
+	option src 'private'
+	option dest 'iot'
+	option proto 'tcp'
+	option dest_port '22'
 	option target 'ACCEPT'
 
 config rule

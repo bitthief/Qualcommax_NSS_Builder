@@ -65,7 +65,18 @@ echo "IoT radio: $RADIO"
 uci -q batch <<EOF
 delete wireless.${RADIO}.disabled
 set wireless.${RADIO}.country='${COUNTRY}'
-set wireless.${RADIO}.channel='1'
+## band is the fix. wifi config detects the QCA9887 as band='5g' — it is a
+## dual-band 1x1 part and detection takes the higher band — so setting
+## channel='1' without this put channel 1 on a 5 GHz radio, which is invalid
+## and hostapd never started. Your 6.1 config ran this radio at 2g.
+set wireless.${RADIO}.band='2g'
+## Channel 3, 20 MHz. Chosen for COMPATIBILITY, which is the priority on this
+## radio: 1-11 is the universally supported range, so no appliance can fail to
+## see it the way 12/13 risk. 3 sits low enough to leave the whole upper half
+## of the band free for the ath11k radio's 40 MHz block.
+##
+## Its 20 MHz span is roughly 2411-2433 MHz.
+set wireless.${RADIO}.channel='3'
 set wireless.${RADIO}.htmode='HT20'
 set wireless.${RADIO}.txpower='20'
 set wireless.${RADIO}.distance='15'

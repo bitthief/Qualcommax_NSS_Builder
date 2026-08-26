@@ -87,7 +87,22 @@ if [ -n "$R5G" ]; then
 	uci -q batch <<-EOF
 		delete wireless.${R5G}.disabled
 		set wireless.${R5G}.country='${COUNTRY}'
-		set wireless.${R5G}.channel='auto'
+		set wireless.${R5G}.band='5g'
+		## Channel 100 instead of auto. In ETSI, 100-140 are DFS and hostapd's
+		## ACS will not consider them, which is why your acs_chan_bias was
+		## ignored and you never saw anything above 64. Naming one explicitly
+		## with doth='1' forces a CAC instead.
+		##
+		## Expect no beacon for 60 s while the radar scan runs (600 s if you
+		## ever pick 120-128 — weather radar). Watch it with:
+		##     logread -e DFS
+		## If CAC never completes, ath11k radar detection is not working on
+		## this build; fall back to channel 'auto', which will land on 36-48.
+		##
+		## This is also the only way to get a real HE160: the sole clean
+		## 160 MHz block in ETSI is 100-128, all of it DFS. On 'auto' you were
+		## silently getting 80 MHz.
+		set wireless.${R5G}.channel='100'
 		set wireless.${R5G}.htmode='HE160'
 		set wireless.${R5G}.txpower='23'
 		set wireless.${R5G}.distance='15'
@@ -123,8 +138,30 @@ if [ -n "$R24" ]; then
 	uci -q batch <<-EOF
 		delete wireless.${R24}.disabled
 		set wireless.${R24}.country='${COUNTRY}'
-		set wireless.${R24}.channel='11'
-		set wireless.${R24}.htmode='HE20'
+		set wireless.${R24}.band='2g'
+		## Channel 9, 40 MHz. This radio is the performance one — it is where
+		## the MEDIA AP would land — so it gets the wide channel and the IoT
+		## radio gets the narrow one.
+		##
+		## Control channel 9 is inside 1-11, so a US-market client that cannot
+		## scan above 11 still associates here at 20 MHz. Only the 40 MHz
+		## extension reaches into ETSI-only territory, and only for clients
+		## that can use it. That is why 9 rather than 11, 12 or 13.
+		##
+		## VERIFY THE SECONDARY AFTER FIRST BOOT. hostapd chooses HT40+ or
+		## HT40-, and that decides whether this radio occupies 9-13 (centre
+		## 2462) or 5-9 (centre 2442). Only the first is clean against the IoT
+		## radio on channel 3:
+		##     iw dev phy1-ap0 info | grep -E 'channel|center'
+		## center1 2462 -> HT40+, correct, nothing to do.
+		## center1 2442 -> HT40-, it has taken 5-9 and overlaps channel 3.
+		##                 Move the IoT radio to 1, or set htmode HE20 here.
+		##
+		## Band budget for when MEDIA arrives: 2.4 GHz gives ~83 MHz total, so
+		## one 40 MHz block plus one 20 MHz block plus guard is all that fits.
+		## A third network in this band has to share one of them.
+		set wireless.${R24}.channel='9'
+		set wireless.${R24}.htmode='HE40'
 		set wireless.${R24}.txpower='20'
 		set wireless.${R24}.distance='15'
 		set wireless.${R24}.beacon_int='100'

@@ -1,0 +1,5 @@
+## /etc/config/luci_plugins
+## Carried from your working config so LuCI's plugin list is not regenerated
+## empty on a clean flash.
+config plugins 'plugins'
+	option enabled '1'
