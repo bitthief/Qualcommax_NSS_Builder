@@ -12,11 +12,36 @@ CONFIG_TARGET_qualcommax_ipq807x_DEVICE_xiaomi_ax3600=y
 CONFIG_ATH11K_MEM_PROFILE_512M=y
 CONFIG_NSS_MEM_PROFILE_MEDIUM=y
 
-CONFIG_ATH10K-CT_LEDS=n
-CONFIG_PACKAGE_ath10k-board-qca9887=n
+# ath10k / QCA9887 IoT radio — ENABLED.
+#
+# Upstream disables all five of these here. This file is concatenated AFTER
+# devices/common/config and kconfig takes the last occurrence of a symbol, so
+# whatever is set here wins — which is why pinning them in common/config had
+# no effect and the firmware never reached the image.
+#
+# It is also why nothing warned: prepare-build.sh's verification resolves each
+# symbol to its last value and then filters out everything ending in '=n', so
+# a symbol that is explicitly disabled can never be reported as dropped.
+#
+# The AX3600 does have this radio (PCIe QCA9887/9889, 1x1 802.11n, its own
+# antenna) and it carries the IoT appliances. Upstream almost certainly just
+# does not use it rather than it being incompatible — the 6.1 build ran the
+# same driver and firmware for years. Do watch free RAM though: this is a
+# 512 MB board already running NSS MEDIUM plus two ath11k radios.
+#
+# -ct-full-htt, not plain -ct: full HTT gives the CT driver in-firmware rate
+# control, which is what the 6.1 build used. Non-CT firmware stays off — both
+# variants install the same /lib/firmware/ath10k/QCA9887/hw1.0/ paths.
+CONFIG_PACKAGE_kmod-ath10k-ct-smallbuffers=y
+CONFIG_PACKAGE_ath10k-board-qca9887=y
+CONFIG_PACKAGE_ath10k-firmware-qca9887-ct-full-htt=y
 CONFIG_PACKAGE_ath10k-firmware-qca9887=n
 CONFIG_PACKAGE_ath10k-firmware-qca9887-ct=n
-CONFIG_PACKAGE_kmod-ath10k-ct-smallbuffers=n
+
+# Required for the IoT LED. /etc/config/system has a `config led 'led_wan'`
+# with trigger netdev and sysfs 'ath10k-phy0'; without CT LED support that
+# trigger is never registered and the LED silently does nothing.
+CONFIG_ATH10K-CT_LEDS=y
 
 ## Hardware this board does not have.
 CONFIG_PACKAGE_kmod-phy-aquantia=n

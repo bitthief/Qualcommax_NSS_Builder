@@ -240,25 +240,11 @@ CONFIG_PACKAGE_libopenssl-conf=y
 ## ======================================================================
 ## ath10k — the QCA9887/9889 IoT radio
 ## ======================================================================
-# The device's DEVICE_PACKAGES line specifies ath10k-firmware-qca9887-ct, but
-# the firmware did not end up in the image. Pin the exact set your 6.1 build
-# used, which is known to work with this radio:
+# NOT SET HERE. devices/xiaomi_ax3600/config is concatenated after this file
+# and kconfig takes the last value, so anything set here for ath10k is
+# overridden by the device config. The enables live there.
 #
-#   kmod-ath10k-ct-smallbuffers   + ath10k-firmware-qca9887-ct-full-htt
-#
-# -ct-full-htt rather than plain -ct: full HTT gives the CT driver in-firmware
-# rate control, which is what you were running before.
-#
-# Do NOT also select ath10k-firmware-qca9887 (non-CT). Both variants install
-# the same /lib/firmware/ath10k/QCA9887/hw1.0/ paths and conflict.
-#
-# QCA988X is a different chip and is not on this board — drop it.
-CONFIG_PACKAGE_kmod-ath10k-ct-smallbuffers=y
-CONFIG_PACKAGE_ath10k-board-qca9887=y
-CONFIG_PACKAGE_ath10k-firmware-qca9887-ct-full-htt=y
-CONFIG_PACKAGE_ath10k-firmware-qca9887=n
-CONFIG_PACKAGE_ath10k-firmware-qca988x=n
-CONFIG_PACKAGE_ath10k-firmware-qca988x-ct=n
+# These two are board-agnostic and nothing overrides them.
 CONFIG_PACKAGE_ipq-wifi-xiaomi_ax3600=y
 CONFIG_PACKAGE_ath11k-firmware-ipq8074=y
 
