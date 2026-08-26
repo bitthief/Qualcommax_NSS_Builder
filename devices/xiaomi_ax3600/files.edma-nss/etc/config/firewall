@@ -22,7 +22,12 @@ config defaults
 ## masq_allow_invalid kept ONLY on wan and wireguard. On the four LAN zones
 ## masq is '0', so the flag has never done anything there.
 ##
-## NOTE (not changed, flagged for later): svc/iot/private have input ACCEPT.
+## NOTE: svc and private still have input ACCEPT — deliberately left to you.
+## private is where you administer from, and svc holds the resolver, so both
+## have a real reason to reach the router. iot had none. If you want them
+## tightened too, they need the same treatment: DROP plus the mDNS input rules
+## above, and for private also SSH on 1338 and LuCI on 80/443.
+## Historical note:
 ## That means any appliance in IOT can reach the router's SSH and LuCI on
 ## 192.168.32.1. Tightening iot to DROP (the DHCP/DHCPv6/NDP rules below
 ## already cover what clients legitimately need, plus NTP) is a real
@@ -52,9 +57,23 @@ config zone
 	option masq6_privacy '1'
 	option network 'svc'
 
+## [CHANGED] input was ACCEPT. That let any appliance in your least-trusted
+## zone reach the router's own listeners directly — dnsmasq/odhcpd on 53/67/547,
+## uhttpd on 80/443, chrony on 123. Nothing here is or was reachable from WAN
+## (the wan zone is input DROP with only DHCP renew and rate-limited ICMP), so
+## this is the lateral-movement surface, not the internet-facing one.
+##
+## Everything an IoT client legitimately needs from the router is already an
+## explicit rule below: DHCP, DHCPv6, NDP, NTP, ICMP, IGMP/MLD, and mDNS —
+## the last added in this same change, see the note there.
+## DNS is unaffected: the hijack DNATs 53/853 to the resolver, which makes it
+## forwarded traffic rather than input.
+##
+## Revert with one word if something breaks, and check `logread` for the zone
+## before assuming it did.
 config zone
 	option name 'iot'
-	option input 'ACCEPT'
+	option input 'DROP'
 	option output 'ACCEPT'
 	option forward 'ACCEPT'
 	option mtu_fix '1'
@@ -477,6 +496,29 @@ config rule
 	option src 'svc'
 	option proto 'udp'
 	option dest_port '123'
+	option target 'ACCEPT'
+
+## Input, not forward. avahi runs ON the router and its reflector is what
+## carries mDNS across your zones — so it has to receive the multicast
+## arriving on br-iot. With iot input DROP and without this rule, every
+## Allow-mDNS-*-to-* forward rule still exists and cross-zone discovery still
+## breaks, because the reflector never hears anything to reflect.
+config rule
+	option name 'Allow-IOT-mDNS-Input'
+	option src 'iot'
+	option proto 'udp'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IOT-mDNS6-Input'
+	option src 'iot'
+	option proto 'udp'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
 	option target 'ACCEPT'
 
 config rule

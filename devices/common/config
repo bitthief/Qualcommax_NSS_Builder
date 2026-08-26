@@ -301,10 +301,34 @@ CONFIG_PACKAGE_procd-ujail=y
 # the jail away again.
 CONFIG_KERNEL_NAMESPACES=y
 
-# NOT enabled: procd-seccomp. It provides syscall filtering, but services opt
-# in per-instance via `procd_set_param seccomp <profile>`, and neither odhcpd
-# nor uhttpd does. Without profiles it is size with no filtering.
-CONFIG_PACKAGE_procd-seccomp=n
+# procd-seccomp. Read this before expecting it to filter anything.
+#
+# Services opt in per-instance with `procd_set_param seccomp <profile>`, and a
+# grep across the whole tree finds exactly ONE package that does: umdns. Which
+# is also the one package we deliberately dropped, in favour of avahi's
+# reflector. Nothing else — not odhcpd, not uhttpd, not dnsmasq, not chrony —
+# references a profile, and no other profile exists to reference.
+#
+# So this is enabled for the TOOLING, not for filtering that happens today:
+#   /sbin/utrace, /sbin/seccomp-trace   generate a profile by tracing a running
+#                                       service and recording its syscalls
+#   /lib/libpreload-seccomp.so          the enforcement shim procd preloads
+#
+# With KERNEL_SECCOMP=y the InstallSeccomp macro also becomes live, so any
+# profile you add to a package is actually installed to /etc/seccomp/ rather
+# than silently skipped.
+#
+# Writing one is a real project, not a config flag. The shape:
+#   seccomp-trace /usr/sbin/odhcpd            # exercise it for a while
+#   # turn the recorded syscall list into /etc/seccomp/odhcpd.json
+#   # add `procd_set_param seccomp /etc/seccomp/odhcpd.json` to the init
+# The umdns profile is 59 lines with defaultAction SCMP_ACT_KILL_PROCESS and
+# is the reference to copy. Get the syscall list wrong and the daemon is
+# killed rather than degraded, which is why this is not a thing to guess at.
+CONFIG_PACKAGE_procd-seccomp=y
+# Gates both libpreload-seccomp and the InstallSeccomp macro. Defaults to y
+# unless SMALL_FLASH; pinned so it cannot quietly disappear.
+CONFIG_KERNEL_SECCOMP=y
 
 ## ======================================================================
 ## Band steering / roaming assistance
