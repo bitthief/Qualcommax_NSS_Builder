@@ -45,8 +45,8 @@ CONFIG_ATH10K-CT_LEDS=y
 
 ## Hardware this board does not have.
 CONFIG_PACKAGE_kmod-phy-aquantia=n
-CONFIG_PACKAGE_kmod-usb-core=n
-CONFIG_PACKAGE_kmod-usb-dwc3=n
-CONFIG_PACKAGE_kmod-usb-dwc3-qcom=n
-CONFIG_PACKAGE_kmod-usb-xhci-hcd=n
-CONFIG_PACKAGE_kmod-usb3=n
+CONFIG_PACKAGE_kmod-usb-core=y
+CONFIG_PACKAGE_kmod-usb-dwc3=y
+CONFIG_PACKAGE_kmod-usb-dwc3-qcom=y
+CONFIG_PACKAGE_kmod-usb-xhci-hcd=y
+CONFIG_PACKAGE_kmod-usb3=y
