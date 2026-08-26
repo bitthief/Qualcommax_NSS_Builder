@@ -1,0 +1,49 @@
+#!/bin/sh
+# doh-blocklist-update — port of your /etc/hotplug.d/online/60-ipset-doh.
+#
+# Same upstream source (dibdot/DoH-IP-blocklists), same idea: refresh the DoH
+# endpoint list from the internet, then rebuild what actually enforces it.
+#
+# What changed: the old script wrote `list domain` entries into the `dhcp.doh`
+# ipset section, and 70-ipset-setup then resolved them into an ipset via
+# /etc/profile.d/ipset.sh. dnsmasq now writes fw4's own nft sets directly from
+# nftset= directives, so the resolution step and the ipset helper are gone —
+# the list only has to reach /etc/doh-domains.txt and the generator does the
+# rest. One fetch, one regenerate, one reload.
+
+set -u
+LOCK=/var/lock/doh-blocklist
+DEST=/etc/doh-domains.txt
+URL='https://raw.githubusercontent.com/dibdot/DoH-IP-blocklists/master/doh-domains.txt'
+GEN=/rom/etc/uci-defaults/97-doh-nftset.sh
+[ -x "$GEN" ] || GEN=/etc/uci-defaults/97-doh-nftset.sh
+
+[ -e "$LOCK" ] && exit 0
+lock -n "$LOCK" || exit 0
+trap 'lock -u "$LOCK"' EXIT
+
+TMP="$(mktemp -t doh.XXXXXX)" || exit 1
+if ! uclient-fetch -q -T 30 -O "$TMP" "$URL"; then
+	logger -t doh-blocklist "fetch failed, keeping existing list"
+	rm -f "$TMP"; exit 0
+fi
+
+# Sanity gate: a truncated or error-page download must not wipe the list.
+n=$(grep -cE '^[a-z0-9.-]+\.[a-z]{2,}$' "$TMP" 2>/dev/null || echo 0)
+if [ "$n" -lt 50 ]; then
+	logger -t doh-blocklist "only $n plausible domains in download, refusing to replace"
+	rm -f "$TMP"; exit 0
+fi
+
+{
+	echo "# Fetched $(date -u +%FT%TZ) from"
+	echo "# $URL"
+	echo "# Local additions go BELOW this line and survive updates only if you"
+	echo "# keep a copy — this file is replaced wholesale on each refresh."
+	grep -E '^[a-z0-9.-]+\.[a-z]{2,}$' "$TMP" | sort -u
+} > "$DEST"
+rm -f "$TMP"
+
+sh "$GEN" 2>/dev/null
+/etc/init.d/dnsmasq reload 2>/dev/null
+logger -t doh-blocklist "updated: $n domains"

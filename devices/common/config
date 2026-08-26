@@ -27,7 +27,6 @@ CONFIG_USE_GC_SECTIONS=y
 CONFIG_USE_LTO=y
 CONFIG_USE_MOLD=y
 CONFIG_ZLIB_OPTIMIZE_SPEED=y
-# CONFIG_CCACHE is not set
 
 ## Kernel Build Options
 CONFIG_BUILD_PATENTED=y
@@ -281,6 +280,36 @@ CONFIG_PACKAGE_chrony-nts=y
 # Pulled in by the variant, but pinned so a dependency change cannot silently
 # drop it and leave NTS-KE with nothing to validate against.
 CONFIG_PACKAGE_ca-bundle=y
+
+## ======================================================================
+## Build-host options
+## ======================================================================
+# ccache: no benefit on a GitHub runner (clean container every run, no cache
+# action configured) but a large one locally, where you rebuild the same
+# toolchain repeatedly. Harmless in CI — it just never gets a hit.
+CONFIG_CCACHE=y
+
+## ======================================================================
+## Band steering / roaming assistance
+## ======================================================================
+# usteer is what makes one SSID across 2.4 and 5 GHz actually prefer 5 GHz.
+# 802.11k/v (already enabled per-VAP) only give the client information and a
+# polite suggestion; the client decides. usteer watches signal levels and
+# actively issues BSS Transition Management requests, and can refuse an
+# association on the band you would rather it not use.
+CONFIG_PACKAGE_usteer=y
+
+## ======================================================================
+## SSH — server AND clients
+## ======================================================================
+# The image had a server and no client: no ssh, no scp, no sftp outbound.
+# You asked for the toolbox and this is part of it.
+CONFIG_PACKAGE_openssh-client=y
+CONFIG_PACKAGE_openssh-client-utils=y
+CONFIG_PACKAGE_openssh-sftp-client=y
+# You had this in the 6.1 build.
+CONFIG_PACKAGE_openssh-sftp-server=y
+CONFIG_PACKAGE_openssh-keygen=y
 
 ## ======================================================================
 ## Toolbox — CLI only, nothing here binds a socket

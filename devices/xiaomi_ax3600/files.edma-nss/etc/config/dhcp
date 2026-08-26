@@ -44,61 +44,115 @@ config dnsmasq
 	list server '/raw.githubusercontent.com/1.1.1.1'
 	list server '/ntp.org/1.1.1.1'
 	## Upstream resolver. v6 is now the STATIC address, not the SLAAC address
-	## derived from the Pi's MAC — assign fdb6:747a:d337:3::2 on that host.
+	## derived from the Pi's MAC — assign fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb on that host.
 	list server '192.168.137.2'
-	list server 'fdb6:747a:d337:3::2'
+	list server 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
-config dhcp 'svc'
-	option interface 'svc'
-	option start '100'
-	option limit '150'
-	option leasetime '12h'
-	option dhcpv6 'server'
-	option ra 'server'
-	option ra_slaac '1'
-	list ra_flags 'managed-config'
-	list ra_flags 'other-config'
-	list dhcp_option '6,192.168.137.2'
-
-config dhcp 'iot'
-	option interface 'iot'
-	option start '100'
-	option limit '150'
-	option leasetime '12h'
-	option dhcpv6 'server'
-	option ra 'server'
-	option ra_slaac '1'
-	list ra_flags 'managed-config'
-	list ra_flags 'other-config'
-	list dhcp_option '6,192.168.137.2'
-
-config dhcp 'guest'
-	option interface 'guest'
-	option start '100'
-	option limit '150'
-	option leasetime '4h'
-	option dhcpv6 'server'
-	option ra 'server'
-	option ra_slaac '1'
-	list ra_flags 'managed-config'
-	list ra_flags 'other-config'
-	list dhcp_option '6,192.168.137.2'
-
-config dhcp 'private'
-	option interface 'private'
-	option start '100'
-	option limit '150'
-	option leasetime '12h'
-	option dhcpv6 'server'
-	option ra 'server'
-	option ra_slaac '1'
-	list ra_flags 'managed-config'
-	list ra_flags 'other-config'
-	list dhcp_option '6,192.168.137.2'
+##############################################################################
+## Per-zone pools — RESTORED FROM YOUR CONFIG
+##############################################################################
+## I had invented start/limit/leasetime for all four and dropped every RA and
+## dhcp_option line. What was lost, and why each matters:
+##
+##   ra_management '1'   clients take addresses from DHCPv6, not SLAAC alone
+##   ra_default '1'      advertise as default router even without a global v6
+##   ra_preference       router preference in the RA
+##   ndp 'disabled'      no NDP proxying between zones
+##
+##   dhcp_option 43 '01:04:00:00:00:02'
+##       Microsoft vendor-specific: NetBIOS-over-TCP/IP node type = P-node.
+##       Kills broadcast NBT name resolution, i.e. LLMNR/NBT-NS poisoning.
+##   dhcp_option 44
+##       WINS server, explicitly empty. Same target from the other side.
+##   dhcp_option 252 '"\n"'
+##       WPAD. An empty PAC URL is the standard defence against WPAD
+##       hijacking. Dropping it silently re-opened a Responder-class hole on
+##       every zone.
+##
+## These three are the "security!" you were referring to and I removed all of
+## them without noticing what they were.
 
 config dhcp 'wan'
 	option interface 'wan'
 	option ignore '1'
+	option start '100'
+	option limit '150'
+	option leasetime '12h'
+
+config dhcp 'wan6'
+	option interface 'wan6'
+	option ignore '1'
+
+config dhcp 'svc'
+	option interface 'svc'
+	option start '2'
+	option limit '64'
+	option leasetime '12h'
+	option dhcpv6 'server'
+	option ra 'server'
+	option ra_management '1'
+	option ra_default '1'
+	option ra_preference 'high'
+	option ra_flags 'managed-config other-config'
+	option ndp 'disabled'
+	list dhcp_option '6,192.168.137.2'
+	list dhcp_option '43,01:04:00:00:00:02'
+	list dhcp_option '44'
+	list dhcp_option '252,"\n"'
+	option dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
+
+config dhcp 'iot'
+	option interface 'iot'
+	option start '100'
+	option limit '254'
+	option leasetime '12h'
+	option dhcpv6 'server'
+	option ra 'server'
+	option ra_management '1'
+	option ra_default '1'
+	option ra_preference 'high'
+	option ra_flags 'managed-config other-config'
+	option ndp 'disabled'
+	list dhcp_option '6,192.168.137.2'
+	list dhcp_option '43,01:04:00:00:00:02'
+	list dhcp_option '44'
+	list dhcp_option '252,"\n"'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
+
+config dhcp 'guest'
+	option interface 'guest'
+	option start '2'
+	option limit '250'
+	option leasetime '6h'
+	option dhcpv6 'server'
+	option ra 'server'
+	option ra_management '1'
+	option ra_default '1'
+	option ra_flags 'managed-config other-config'
+	option ndp 'disabled'
+	list dhcp_option '6,192.168.137.2'
+	list dhcp_option '43,01:04:00:00:00:02'
+	list dhcp_option '44'
+	list dhcp_option '252,"\n"'
+	option dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
+
+config dhcp 'private'
+	option interface 'private'
+	option start '5'
+	option limit '250'
+	option leasetime '6h'
+	option dhcpv6 'server'
+	option ra 'server'
+	option ra_management '1'
+	option ra_default '1'
+	option ra_preference 'high'
+	option ra_flags 'managed-config other-config'
+	option ndp 'disabled'
+	list dhcp_option '6,192.168.137.2'
+	list dhcp_option '43,01:04:00:00:00:02'
+	list dhcp_option '44'
+	list dhcp_option '252,"\n"'
+	option dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 config odhcpd 'odhcpd'
 	option maindhcp '0'
@@ -106,23 +160,20 @@ config odhcpd 'odhcpd'
 	option leasetrigger '/usr/sbin/odhcpd-update'
 	option loglevel '3'
 
-##############################################################################
-## Static leases — YOU HAVE 3, FILL THEM IN
-##############################################################################
-## Your old /etc/config/dhcp has three `config host` sections. The collector
+config host` sections. The collector
 ## redacted broadly so the MACs did not survive; recover them from the Phase 0
 ## backup:
 ##     tar xzf backup-*.tar.gz -O etc/config/dhcp | awk '/^config host/,/^$/'
 ##
 ## The resolver MUST land on 192.168.137.2 — that address is hardcoded in
 ## /etc/nftables.d/20-dnshijack.nft. Give it `option hostid '2'` so its v6
-## address is the static fdb6:747a:d337:3::2 rather than a MAC-derived SLAAC
+## address is the static fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb rather than a MAC-derived SLAAC
 ## address that breaks when you swap the Pi for the UDOO.
 config host
 	option name 'pihole'
 	option ip '192.168.137.2'
 	option mac 'b8:27:eb:6e:5a:eb'
-	option hostid '2'
+	option hostid '0aeb'
 	option duid '00010001282ebbd4b827eb6e5aeb'
 
 config host
@@ -139,11 +190,22 @@ config host
 	option hostid '04cd'
 	option duid '000100012A5274D0FC3FDB7E74CD'
 
-## NOTE — hostid mismatch, decide before flashing.
-## pihole above has hostid '0aeb', which yields fdb6:747a:d337:3::aeb.
-## /etc/nftables.d/20-dnshijack.nft and the `list server` line above both
-## point at fdb6:747a:d337:3::2. As it stands the v6 hijack redirects to an
-## address nothing answers on.
-## Either set hostid '2' here (recommended — it survives a hardware swap,
-## which was the whole point of moving off the SLAAC address), or change both
-## references to ::aeb.
+## v6 RESOLVER ADDRESS — now consistent everywhere, on the one that works.
+##
+## Your Pi currently holds three v6 addresses:
+##     fdb6:747a:d337:3::1b7                     odhcpd pool assignment
+##     fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb      SLAAC, EUI-64 from the MAC
+##     fe80::ba27:ebff:fe6e:5aeb                 link-local
+##
+## Note what is NOT there: ::aeb. `hostid '0aeb'` is being ignored, because
+## odhcpd matches DHCPv6 clients by DUID and the `duid` in the host entry does
+## not match the one NetworkManager actually sends — so the Pi is treated as
+## an unknown client and served from the pool. That is why it has ::1b7.
+##
+## So ::2 was never going to work either, and my earlier "set hostid 2" advice
+## was wrong for the same reason. Everything now points at the SLAAC address,
+## which is stable as long as the NIC is (NetworkManager has addr-gen-mode=eui64).
+##
+## To go back to a hostid-based address later, fix the DUID first:
+##     pi$ sudo cat /var/lib/NetworkManager/secret_key   # or dhcpcd duid
+## and put the real value in `option duid` here.

@@ -93,7 +93,7 @@ config zone
 	option mtu_fix '1'
 	option masq '1'
 	option masq_allow_invalid '1'
-	option network 'wg0 wg60 wg1 wg61 wg2 wg62'
+	option network 'wg0 wg60 wg1 wg61 wg2 wg62 wg3 wg63'
 
 ##############################################################################
 ## Forwardings — this is what makes fail-closed structural
@@ -156,28 +156,36 @@ config forwarding
 ## [CHANGED] -to-WIREGUARD variants added for iot and guest. Previously only
 ## private had them, and even those were shadowed.
 
+## 853 is DoT. 8853 is DoQ (DNS-over-QUIC, RFC 9250) — dropped rather than
+## hijacked, deliberately: the resolver does not speak DoQ, so DNAT would send
+## the client to something that cannot answer and it would hang rather than
+## fall back. A clean drop makes the client fail fast to Do53, which the
+## hijack then catches. Same reasoning as the DoH treatment.
 config rule
-	option name 'Drop-DoT-IOT'
+	option name 'Drop-DoT-DoQ-IOT'
 	option src 'iot'
 	list proto 'tcp'
 	list proto 'udp'
-	option dest_port '853'
+	list dest_port '853'
+	list dest_port '8853'
 	option target 'DROP'
 
 config rule
-	option name 'Drop-DoT-GUEST'
+	option name 'Drop-DoT-DoQ-GUEST'
 	option src 'guest'
 	list proto 'tcp'
 	list proto 'udp'
-	option dest_port '853'
+	list dest_port '853'
+	list dest_port '8853'
 	option target 'DROP'
 
 config rule
-	option name 'Drop-DoT-PRIVATE'
+	option name 'Drop-DoT-DoQ-PRIVATE'
 	option src 'private'
 	list proto 'tcp'
 	list proto 'udp'
-	option dest_port '853'
+	list dest_port '853'
+	list dest_port '8853'
 	option target 'DROP'
 
 ## Belt and braces behind the NTP hijack: anything the DNAT misses cannot

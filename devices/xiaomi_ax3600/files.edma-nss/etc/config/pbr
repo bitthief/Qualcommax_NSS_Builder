@@ -16,7 +16,7 @@ config pbr 'config'
 	option procd_reload_delay '1'
 	option webui_show_ignore_target '1'
 	list ignored_interface 'vpnserver'
-	list supported_interface 'wg0 wg1 wg2'
+	list supported_interface 'wg0 wg1 wg2 wg3'
 
 ##############################################################################
 ## Guard: keep hijacked DNS out of policy routing
@@ -28,9 +28,19 @@ config pbr 'config'
 
 config policy
 	option name 'Local subnets - no policy routing'
-	option dest_addr '192.168.32.0/24 192.168.33.0/24 192.168.37.0/24 192.168.137.0/24 fdb6:747a:d337::/48'
+	option dest_addr '192.168.32.0/24 192.168.33.0/24 192.168.37.0/24 192.168.137.0/24 fdb6:747a:d337::/48 224.0.0.0/4 ff00::/8'
 	option interface 'ignore'
 	option enabled '1'
+
+## This is the pbr equivalent of your /etc/mwan3.user, which inserted
+## `udp dport {53,853,5353} return` and the tcp twin into mwan3_hook because
+## DNS broke without it. The mechanism differs: the DNS hijack DNATs 53/853 to
+## the resolver at prerouting, so by the time pbr's mangle hook sees the packet
+## its destination is already inside 192.168.137.0/24 and the local-subnets
+## policy above catches it. Multicast (5353 mDNS, SSDP) never had a DNAT to
+## rewrite it, which is why 224.0.0.0/4 and ff00::/8 are now listed explicitly
+## — without them mDNS could be marked and sent to a tunnel that cannot route
+## link-local multicast.
 
 ##############################################################################
 ## Zone egress — IPv4
@@ -42,10 +52,11 @@ config policy
 	option interface 'wg0'
 	option enabled '1'
 
+## SVC moved off wg1 onto its own tunnel. IOT keeps wg1.
 config policy
-	option name 'SVC via wg1'
+	option name 'SVC via wg3'
 	option src_addr '192.168.137.0/24'
-	option interface 'wg1'
+	option interface 'wg3'
 	option enabled '1'
 
 config policy
@@ -74,9 +85,9 @@ config policy
 	option enabled '1'
 
 config policy
-	option name 'SVC v6 via wg1'
+	option name 'SVC v6 via wg3'
 	option src_addr 'fdb6:747a:d337:3::/64'
-	option interface 'wg1'
+	option interface 'wg3'
 	option enabled '1'
 
 config policy
@@ -91,7 +102,7 @@ config policy
 	option interface 'wg2'
 	option enabled '1'
 
-## NOTE: SVC and IOT share wg1. Pi-hole lives in SVC, and every zone's DNS is
+## RESOLVED: SVC is on wg3, IOT on wg1. Historical note: Pi-hole lives in SVC, and every zone's DNS is
 ## hijacked to it — so if wg1 blackholes, PRIVATE (wg0) and GUEST (wg2) keep
 ## healthy tunnels and lose name resolution anyway. Failing DNS closed is
 ## defensible; the point is the blast radius crosses your zone boundaries.

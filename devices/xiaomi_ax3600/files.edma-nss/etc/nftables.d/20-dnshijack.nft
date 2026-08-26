@@ -8,23 +8,28 @@
 ##     device MAC is 6a:0a:9e:4b:ef:ef, so it never matched anything.
 ##  2. The resolver's v6 target is now a STATIC address, not the SLAAC
 ##     address derived from the Raspberry Pi's MAC. Assign
-##     fdb6:747a:d337:3::2 on the resolver host. Survives a hardware swap.
+##     fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb on the resolver host. Survives a hardware swap.
 ##  3. The commented-out mark/masquerade hairpin block is dropped. If you
 ##     want hairpin NAT later that is a fresh design, not a half-finished one.
 ##
 ## RESOLVER ADDRESSES - change in one place if the host changes:
 ##   v4: 192.168.137.2
-##   v6: fdb6:747a:d337:3::2
+##   v6: fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb
 
 chain dnshijack {
   ip  saddr { 192.168.137.1, 192.168.137.2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
   ip  daddr { 192.168.137.1, 192.168.137.2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
-  ip6 saddr { fdb6:747a:d337:3::1, fdb6:747a:d337:3::2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
-  ip6 daddr { fdb6:747a:d337:3::1, fdb6:747a:d337:3::2 } return comment "!fw4: DNSHIJACK - gateway and resolver"
+  ip6 saddr { fdb6:747a:d337:3::1, fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb } return comment "!fw4: DNSHIJACK - gateway and resolver"
+  ip6 daddr { fdb6:747a:d337:3::1, fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb } return comment "!fw4: DNSHIJACK - gateway and resolver"
 
   dnat ip  to 192.168.137.2       comment "!fw4: DNSHIJACK - redirect to resolver"
-  dnat ip6 to fdb6:747a:d337:3::2 comment "!fw4: DNSHIJACK - redirect to resolver"
+  dnat ip6 to fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb comment "!fw4: DNSHIJACK - redirect to resolver"
 }
+
+## DoQ (UDP 8853) is intentionally absent here and handled as a DROP in
+## /etc/config/firewall instead: the resolver speaks Do53 and DoT, not QUIC,
+## so redirecting DoQ would hand the client a socket that never answers.
+## Dropping makes it fail fast and retry over Do53, which this chain catches.
 
 chain dstnat {
   type nat hook prerouting priority -100; policy accept;

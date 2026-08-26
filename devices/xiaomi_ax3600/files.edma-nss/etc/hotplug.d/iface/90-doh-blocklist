@@ -1,0 +1,7 @@
+# Refresh the DoH blocklist once the WAN is actually up.
+# Replaces your 90-online + 60-ipset-doh pair: hotplug.d/online was a custom
+# event you had to raise yourself via `hotplug-call online`; this hooks the
+# standard iface event and filters for the WAN directly.
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wan6" ] || exit 0
+( sleep 20; /usr/libexec/doh-blocklist-update ) &
