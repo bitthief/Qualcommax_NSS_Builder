@@ -1,0 +1,56 @@
+## /etc/config/usteer
+##
+## usteer is what turns "same SSID on both bands" into "clients actually end
+## up on 5 GHz". 802.11k/v (set per-VAP) only give the client information and
+## a suggestion; usteer watches signal levels and issues BSS Transition
+## Management requests, and can refuse an association outright.
+##
+## It works with built-in defaults and no config file at all. This one exists
+## to scope it to your SSIDs and to write down which knobs matter, because the
+## right values are empirical — a 45 m² flat with concrete walls is not the
+## environment usteer's defaults were chosen for.
+##
+## Watch it work:  logread -e usteer   and   ubus call usteer get_clients
+
+config usteer
+	option syslog '1'
+	## 0 = quiet. Raise to 2 while tuning, then put it back — at 3+ it logs
+	## per-probe and will fill your ring buffer.
+	option debug_level '0'
+
+	## Only manage these. Leaving it empty manages everything, including the
+	## IoT SSID on the ath10k radio — which you do not want steered anywhere,
+	## since it has nowhere to go and appliance firmware handles BTM badly.
+	list ssid_list 'TP-Link_0337D'
+	list ssid_list 'TP-Link_1337D'
+
+	## --- band steering -------------------------------------------------
+	## Steer a 2.4 GHz client to 5 GHz when its signal is at least this many
+	## dB above the minimum. Higher = more conservative; a client with a
+	## marginal 5 GHz path is left where it is. 5 is the shipped default and a
+	## sane start for a small flat.
+	option band_steering_threshold '5'
+
+	## Refuse the first association attempt on the less-preferred band, so a
+	## client that would have latched onto 2.4 GHz retries on 5 GHz. This is
+	## the aggressive knob: it is also the one that makes steering actually
+	## happen rather than politely suggesting it.
+	option assoc_steering '1'
+
+	## Do not accept an association below this SNR at all. Guards against a
+	## device in the far room clinging to a barely-working link instead of
+	## retrying. Raise cautiously — too high and a legitimately distant client
+	## simply cannot connect.
+	option min_connect_snr '10'
+
+	## --- roaming -------------------------------------------------------
+	## Only relevant with more than one AP. Harmless on a single AP; left at
+	## conservative values so adding a second AP later needs no re-think.
+	option roam_scan_snr '-70'
+	option roam_trigger_snr '-75'
+	option signal_diff_threshold '10'
+
+	## --- load balancing ------------------------------------------------
+	## Off. With one AP there is nowhere to balance to, and a kick threshold
+	## on a single radio just disconnects people.
+	option load_kick_enabled '0'

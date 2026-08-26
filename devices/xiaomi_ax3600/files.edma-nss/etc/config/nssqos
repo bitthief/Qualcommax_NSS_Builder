@@ -1,0 +1,13 @@
+## /etc/config/nssqos
+##
+## Disabled and emptied of rules deliberately. nssqos is DSCP classification —
+## it decides which of the firmware's classes a flow lands in. You said you do
+## not want traffic differentiation, only low bufferbloat, and those are
+## different jobs: the shaping that controls bufferbloat is sqm's, below.
+##
+## Running both means two things touching the same queues for no benefit.
+## Re-add rules here only if you later want a latency-sensitive class to jump
+## the shaped queue.
+
+config global 'global'
+	option enabled '0'

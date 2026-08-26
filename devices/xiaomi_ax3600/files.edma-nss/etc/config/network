@@ -95,13 +95,40 @@ config device
 ## WAN
 ##############################################################################
 
+## RESTORED. I had reduced these to proto+device and dropped everything else.
+##
+## macaddr here is the INTERFACE mac (6A:0A:9E:4F:DE:AC) and is deliberately
+## different from the `config device` wan mac (6A:0A:9E:4B:EF:EF) above — the
+## former is what the ISP sees on DHCP.
+##
+## hostname 'DELL-W8401BC' is the DHCP client hostname sent upstream. It is a
+## decoy, not a typo. Do not "fix" it.
+##
+## peerdns '0' + explicit `list dns`: the ISP's resolvers are never used, even
+## for the router's own bootstrap.
+##
+## delegate '0' on both: no prefix delegation downstream from wan. Your LAN v6
+## is ULA-only, which is why ip6hint pinning works at all.
+
 config interface 'wan'
 	option device 'wan'
 	option proto 'dhcp'
+	option macaddr '6A:0A:9E:4F:DE:AC'
+	option hostname 'DELL-W8401BC'
+	option peerdns '0'
+	list dns '1.1.1.1'
+	list dns '1.0.0.1'
+	option delegate '0'
 
 config interface 'wan6'
 	option device 'wan'
 	option proto 'dhcpv6'
+	option iface_464xlat '0'
+	option reqaddress 'try'
+	option reqprefix 'auto'
+	option peerdns '0'
+	list dns '2606:4700:4700::1111'
+	option delegate '0'
 
 ##############################################################################
 ## Zones
@@ -205,6 +232,18 @@ config interface 'wg2'
 	option peerdns '0'
 	option nohostroute '0'
 
+## wg3 — SVC only, so DNS stops sharing an exit with IOT.
+## That coupling was the one structural wart left: Pi-hole lives in SVC and
+## every zone's DNS is hijacked to it, so a wg1 outage cost name resolution
+## network-wide even for zones whose own tunnel was healthy. wg3 decouples it.
+config interface 'wg3'
+	option proto 'wireguard'
+	option mtu '1320'
+	option listen_port '31340'
+	option force_link '1'
+	option peerdns '0'
+	option nohostroute '0'
+
 config interface 'wg60'
 	option proto 'static'
 	option device '@wg0'
@@ -216,6 +255,10 @@ config interface 'wg61'
 config interface 'wg62'
 	option proto 'static'
 	option device '@wg2'
+
+config interface 'wg63'
+	option proto 'static'
+	option device '@wg3'
 
 ##############################################################################
 ## Default routes with metrics — RESTORED, I had dropped all 8 of these
@@ -269,6 +312,16 @@ config route6
 	option interface 'wg62'
 	option target '::/0'
 	option metric '400'
+
+config route
+	option interface 'wg3'
+	option target '0.0.0.0/0'
+	option metric '500'
+
+config route6
+	option interface 'wg63'
+	option target '::/0'
+	option metric '500'
 
 ##############################################################################
 ## NSS ingress shaping helper (present in the base builder image)

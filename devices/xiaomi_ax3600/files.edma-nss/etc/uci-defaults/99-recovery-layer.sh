@@ -70,14 +70,11 @@ chmod 600 /root/.ssh/authorized_keys /etc/dropbear/authorized_keys
 # Let the image detect its own radios. Never hardcode `path` — it is the one
 # thing most likely to differ on a new kernel, and if it is wrong here there
 # is no way back in without a cable.
-rm -f /etc/config/wireless
-wifi config
+# Do NOT regenerate: 98-wireless-ath10k.sh and 98-wireless-ath11k.sh have
+# already run and built the real config. Only add the recovery AP on top.
+[ -s /etc/config/wireless ] || wifi config
 
 # Drop whatever VAPs the image generated (they ship disabled and keyless).
-config_load wireless
-drop_iface() { uci -q delete "wireless.$1"; }
-config_foreach drop_iface wifi-iface
-
 # Attach one recovery AP to EVERY detected radio, keyed on band. Same SSID on
 # all of them, so a single radio failing to come up is not a lockout.
 add_recovery_ap() {
@@ -87,6 +84,11 @@ add_recovery_ap() {
 	uci -q delete "wireless.${dev}.disabled"
 	uci -q set "wireless.${dev}.country=${COUNTRY}"
 	uci -q set "wireless.${dev}.cell_density=0"
+
+	# PCI-attached = the ath10k IoT radio. The recovery AP never depends on it:
+	# it is the radio most likely to be the reason you need recovery.
+	local path; config_get path "$dev" path
+	case "$path" in *pci*) echo "skipping PCI radio $dev for recovery"; return ;; esac
 
 	case "$band" in
 		2g) uci -q set "wireless.${dev}.channel=1"
@@ -113,6 +115,28 @@ add_recovery_ap() {
 config_load wireless
 config_foreach add_recovery_ap wifi-device
 uci commit wireless
+
+## ------------------------------------------------- sshd on the recovery IP
+## sshd_config binds to the PRIVATE gateway only. If you land here, PRIVATE
+## may not exist yet — so add the recovery address, in BOTH families. The v6
+## one is not decoration: a working v6 path is what saved you the serial cable
+## last time, and v4 DHCP is exactly what tends to be broken when you need it.
+##
+## These lines are marked and are removed again by inject-secrets.sh when you
+## set KEEP_RECOVERY_AP=0, alongside the recovery AP itself. Same flag, same
+## moment, so there is one thing to remember rather than two.
+SSHD=/etc/ssh/sshd_config
+if [ -f "$SSHD" ] && ! grep -q 'RECOVERY-LAYER' "$SSHD"; then
+	{
+		echo ""
+		echo "# --- RECOVERY-LAYER BEGIN (removed by inject-secrets.sh) ---"
+		echo "ListenAddress ${RECOVERY_IP}"
+		echo "ListenAddress fe80::%br-lan"
+		echo "# --- RECOVERY-LAYER END ---"
+	} >> "$SSHD"
+	echo "recovery ListenAddress added to sshd_config"
+	/etc/init.d/sshd restart 2>/dev/null || /etc/init.d/openssh restart 2>/dev/null || true
+fi
 
 ## ---------------------------------------------------------------- marker
 echo "recovery-layer applied $(date)" > /etc/recovery-layer.stamp

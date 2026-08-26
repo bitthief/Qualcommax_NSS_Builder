@@ -1,0 +1,39 @@
+## /etc/config/bcp38 — left DISABLED, and here is the reasoning rather than a
+## bare flag.
+##
+## Two problems with enabling it as written:
+##
+## 1. `option interface 'eth1'` does not exist on this board. Your WAN device
+##    is `wan`. As configured it would attach to nothing.
+##
+## 2. Your upstream gateway is 192.168.0.1 — the ISP box is doing NAT, so your
+##    WAN subnet is RFC1918. `list match '192.168.0.0/16'` therefore matches
+##    your own uplink. `detect_upstream 1` exists for exactly this case and
+##    should carve it out, but you would be relying on that detection for
+##    basic connectivity.
+##
+## More to the point: BCP38 filters spoofed RFC1918 source addresses leaving
+## toward the internet. On this box nothing user-originated leaves via wan at
+## all — the firewall has no LAN-to-wan forwarding, only wireguard-to-wan, so
+## the only wan egress is encrypted tunnel traffic to known endpoints plus
+## router-local. There is very little left for BCP38 to catch.
+##
+## If you do want it on: set interface 'wan' and add
+##     list nomatch '192.168.0.0/24'
+## for your uplink subnet, then verify WAN still comes up after a reboot.
+
+config bcp38
+	option enabled '0'
+	option interface 'wan'
+	option detect_upstream '1'
+	list match '127.0.0.0/8'
+	list match '192.0.2.0/24'
+	list match '198.51.100.0/24'
+	list match '203.0.113.0/24'
+	list match '192.168.0.0/16'
+	list match '10.0.0.0/8'
+	list match '172.16.0.0/12'
+	list match '169.254.0.0/16'
+	list match '100.64.0.0/10'
+	## Your uplink. Uncomment together with enabled '1'.
+	# list nomatch '192.168.0.0/24'
