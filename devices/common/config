@@ -276,6 +276,19 @@ CONFIG_PACKAGE_ca-bundle=y
 CONFIG_CCACHE=y
 
 ## ======================================================================
+## CPU frequency policy
+## ======================================================================
+# sysfsutils applies /etc/sysfs.conf and /etc/sysfs.d/*.conf at START=11.
+# Used here to pin the performance governor; see
+# files.edma-nss/etc/sysfs.d/10-cpufreq.conf for the reasoning.
+#
+# The governor cannot be set from this file: CPU_FREQ_DEFAULT_GOV_* is not an
+# OpenWrt kconfig symbol, it lives in target/linux/qualcommax/config-6.18 —
+# which would mean patching the OpenWrt tree. Doing it at runtime keeps the
+# change in your repo instead.
+CONFIG_PACKAGE_sysfsutils=y
+
+## ======================================================================
 ## Service sandboxing — REQUIRED for any of the ujail hardening to apply
 ## ======================================================================
 # This is the missing piece. odhcpd's init gates the jail on
