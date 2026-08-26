@@ -276,6 +276,37 @@ CONFIG_PACKAGE_ca-bundle=y
 CONFIG_CCACHE=y
 
 ## ======================================================================
+## Service sandboxing — REQUIRED for any of the ujail hardening to apply
+## ======================================================================
+# This is the missing piece. odhcpd's init gates the jail on
+#
+#     odhcpd_jailed() { [ -x /sbin/ujail ] && [ -e /etc/capabilities/odhcpd.json ]; }
+#
+# and uhttpd's does the same. /sbin/ujail comes from procd-ujail, which is a
+# separate package and NOT a DEPENDS of either daemon — deliberately, because
+# the jail is opt-in. Without it the capabilities file is installed, the ACL is
+# installed, the USERID exists, and the daemon still runs as root with
+# CapEff=0000001ffffffffff. All the plumbing, none of the effect, and nothing
+# says so.
+#
+# nss-edma-rework already vendors both openwrt/odhcpd#412 patches, so odhcpd
+# needs nothing else to drop to uid 455 once ujail is present.
+#
+# Verify after flashing:
+#   grep -E 'Uid|CapEff|NoNewPrivs' /proc/$(pidof odhcpd)/status
+#   -> Uid: 455 455 455 / CapEff: 0000000000003400 / NoNewPrivs: 1
+CONFIG_PACKAGE_procd-ujail=y
+# procd-ujail needs namespace support. Defaults to y unless SMALL_FLASH, which
+# this board is not — pinned so a future defconfig change cannot quietly take
+# the jail away again.
+CONFIG_KERNEL_NAMESPACES=y
+
+# NOT enabled: procd-seccomp. It provides syscall filtering, but services opt
+# in per-instance via `procd_set_param seccomp <profile>`, and neither odhcpd
+# nor uhttpd does. Without profiles it is size with no filtering.
+CONFIG_PACKAGE_procd-seccomp=n
+
+## ======================================================================
 ## Band steering / roaming assistance
 ## ======================================================================
 # usteer is what makes one SSID across 2.4 and 5 GHz actually prefer 5 GHz.
