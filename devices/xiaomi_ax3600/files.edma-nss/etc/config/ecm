@@ -1,9 +1,43 @@
 ## /etc/config/ecm
-config general 'general'
-	## Your own option, from Feb 2023, still in qca-nss-ecm.init today.
-	## Default 0. Explicit here because it now controls the
-	## bridge-nf-call-* sysctls at runtime — which is what your
-	## /etc/sysctl.d/11-br-netfilter.conf was trying and failing to do
-	## (qca-nss-ecm.conf loaded after it and won the race).
-	option enable_bridge_filtering '0'
+##
+## Section layout matches the package's own qca-nss-ecm.uci exactly: type
+## `ecm`, names `global` and `general`. My previous version used
+## `config general 'general'` — the wrong section type — which is why none of
+## these knobs were doing anything.
+
+config ecm 'global'
 	option acceleration_engine 'auto'
+
+config ecm 'general'
+	## Your own option, from Feb 2023, still in qca-nss-ecm.init today.
+	## Controls the bridge-nf-call-* sysctls at runtime, which is what your
+	## old /etc/sysctl.d/11-br-netfilter.conf was trying and failing to do.
+	option enable_bridge_filtering '0'
+
+	##########################################################################
+	## Offload knobs — driven by disable_offloads.sh, i.e. YOUR script
+	##########################################################################
+	## These are the ones that fix the "TLS over LAN is silently corrupted"
+	## bug you chased years ago. The script survived into this tree; the UCI
+	## knobs that arm it default to 0, and my previous ecm config set none of
+	## them. So the mechanism was present and inert.
+	##
+	## disable_offloads '1' is a DELIBERATE conservative default here, not a
+	## measurement. The datapath changed underneath: this build uses upstream
+	## qca_edma, not the vendor qca-nss-dp where the checksum bug lived, so it
+	## may well be fixed. But silent TLS corruption is the worst class of bug
+	## to attribute while you are also debugging radios, DHCP and routing.
+	##
+	## Once the rest is stable, test turning it back off:
+	##     uci set ecm.general.disable_offloads='0'; uci commit ecm; reboot
+	##     # then pull a few hundred MB over HTTPS from a wired LAN host
+	## and watch for TLS record MAC failures. If clean, leave it off — you get
+	## the checksum/segmentation offloads back on the host path.
+	option disable_offloads '0'
+
+	## Leave at 0 unless you see specific symptoms. Flow control and interrupt
+	## moderation were separate problems from the checksum corruption.
+	option disable_flow_control '0'
+	option disable_interrupt_moderation '0'
+	option disable_gro '0'
+	option disable_gro_list '0'

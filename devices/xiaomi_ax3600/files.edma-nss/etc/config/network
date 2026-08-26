@@ -218,6 +218,59 @@ config interface 'wg62'
 	option device '@wg2'
 
 ##############################################################################
+## Default routes with metrics — RESTORED, I had dropped all 8 of these
+##############################################################################
+## WireGuard interfaces are configured with route_allowed_ips=0 so that pbr
+## owns the routing decision. The side effect is that netifd installs NO
+## default route for wg0/wg1/wg2 anywhere — which leaves pbr nothing stable to
+## copy into its policy tables. These make the per-interface defaults explicit
+## and preserve your metric hierarchy: wan 100, wg0 200, wg1 300, wg2 400.
+##
+## Peer endpoint host routes (e.g. 62.169.136.103 via 192.168.0.1 dev wan) are
+## added automatically because nohostroute is 0. Do not add those by hand.
+
+config route
+	option interface 'wan'
+	option target '0.0.0.0/0'
+	option metric '100'
+
+config route6
+	option interface 'wan6'
+	option gateway 'fe80::1'
+	option target '::/0'
+	option metric '100'
+
+config route
+	option interface 'wg0'
+	option target '0.0.0.0/0'
+	option metric '200'
+
+config route6
+	option interface 'wg60'
+	option target '::/0'
+	option metric '200'
+
+config route
+	option interface 'wg1'
+	option target '0.0.0.0/0'
+	option metric '300'
+
+config route6
+	option interface 'wg61'
+	option target '::/0'
+	option metric '300'
+
+config route
+	option interface 'wg2'
+	option target '0.0.0.0/0'
+	option metric '400'
+
+config route6
+	option interface 'wg62'
+	option target '::/0'
+	option metric '400'
+
+##############################################################################
 ## NSS ingress shaping helper (present in the base builder image)
 ##############################################################################
 

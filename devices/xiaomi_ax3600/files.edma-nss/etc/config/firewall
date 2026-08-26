@@ -881,10 +881,27 @@ config rule
 	option family 'ipv4'
 	option target 'ACCEPT'
 
+## dest_ip is load-bearing, not decoration. fw4 scopes a dest ZONE inside the
+## reject_to_iot helper chain, but emits the LOG inline in forward_guest with
+## no oifname constraint — so without an address match this logs every packet
+## guest forwards anywhere, including OUT=wg2 traffic that is then accepted by
+## the guest->wireguard forwarding a few rules later. The log said "blocked"
+## about traffic that was not blocked.
 config rule
 	option name 'Log-Reject-GUEST-to-IOT'
 	option src 'guest'
 	option dest 'iot'
+	option dest_ip '192.168.32.0/24'
+	option target 'REJECT'
+	option log '1'
+	option log_limit '10/minute'
+
+config rule
+	option name 'Log-Reject-GUEST-to-IOT6'
+	option src 'guest'
+	option dest 'iot'
+	option dest_ip 'fdb6:747a:d337:1::/64'
+	option family 'ipv6'
 	option target 'REJECT'
 	option log '1'
 	option log_limit '10/minute'
