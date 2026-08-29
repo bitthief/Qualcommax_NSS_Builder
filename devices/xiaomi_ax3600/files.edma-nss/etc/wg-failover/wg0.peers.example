@@ -1,17 +1,59 @@
-# /etc/wg-failover/wg0.peers  — rename to drop .example to activate
+# /etc/wg-failover/<iface>.peers   — one file per tunnel: wg0 … wg4
 #
-#   public_key|endpoint_host|endpoint_port|description
+# Rename to drop .example to activate. The interface is taken from the
+# filename, so it is not a field.
 #
-# Each Proton server has its own public key, so a candidate is a (key,
-# endpoint) pair — you cannot keep the key and swap only the host. Generate
-# several configs against the same private key and lift the pairs out.
+# FORMAT — pipe-delimited, six fields, no quoting, no spaces around the pipes:
 #
-# Port 443 throughout: Digi/RCS-RDS filters UDP 51820.
+#   public_key|endpoint_ip|endpoint_port|label|load|flags
 #
-# Order does not matter; the script re-ranks by RTT hourly and caches to
-# /var/run/wg-failover/wg0.ranked. Force a re-rank with:
+#   1 public_key    base64, 44 chars ending '='. Per SERVER, not per key —
+#                   every Proton server has its own, so a candidate is always
+#                   a (key, server) pair. From logicals.json:
+#                   .LogicalServers[].Servers[].X25519PublicKey
+#
+#   2 endpoint_ip   LITERAL IP, never a hostname. This is the one that matters:
+#                   DNS is hijacked to the resolver, whose own upstream goes
+#                   through a tunnel — so at the exact moment failover runs,
+#                   name resolution may be the thing that is broken. An IP has
+#                   no such dependency. From .Servers[].EntryIP
+#
+#   3 endpoint_port 443. UDP 51820 is filtered by Digi/RCS-RDS.
+#
+#   4 label         free text for logread, e.g. 'CH#12 SecureCore CH-AT'.
+#                   No pipes. Keep it short; it is what you read at 3am.
+#
+#   5 load          server load 0-100 at GENERATION time, or empty. Used only
+#                   to break ties between candidates within 5 ms of each other
+#                   — it is a snapshot and goes stale within the hour, so it is
+#                   never the primary sort. From .LogicalServers[].Load
+#
+#   6 flags         comma-separated, or empty. Recognised: p2p, securecore,
+#                   tor, streaming. Derived from .LogicalServers[].Features
+#                   (bitmask: 1=securecore 2=tor 4=p2p 8=streaming 16=ipv6).
+#
+#                   p2p is ENFORCED, not decorative: a .peers file whose name
+#                   is listed in REQUIRE_P2P (see the script) will skip any
+#                   candidate without it. Proton gates P2P by server role, not
+#                   by key attribute — a NetShield-off key on a non-P2P server
+#                   still will not carry torrent traffic, which is why your
+#                   earlier attempt failed.
+#
+# Ordering in the file does not matter. The script re-ranks by live ICMP RTT
+# hourly and caches to /var/run/wg-failover/<iface>.ranked. Force a re-rank:
 #   rm /var/run/wg-failover/*.ranked.at
 #
-# aBcD...=|193.148.16.10|443|CH-AT#1 secure core
-# eFgH...=|193.148.16.11|443|CH-AT#2 secure core
-# iJkL...=|185.159.157.20|443|CH#5
+# Five to ten candidates per tunnel is the right number. Fewer and a regional
+# outage exhausts the list; more and the hourly probe gets slow and noisy.
+#
+# ---------------------------------------------------------------------------
+# Example — PRIVATE via Secure Core:
+#
+# yAnB2q...uK4=|185.159.157.10|443|CH#5 SC CH-AT|32|securecore
+# 7Kd0Le...Pw8=|185.159.157.11|443|CH#7 SC CH-AT|41|securecore
+# Qm3xTv...Nc2=|193.148.16.20|443|IS#2 SC IS-CH|28|securecore
+#
+# Example — MEDIA, where p2p is required:
+#
+# Lp9zRt...Hb6=|149.88.24.30|443|RO#3 P2P|55|p2p
+# Vn4kYw...Ds1=|149.88.24.31|443|RO#5 P2P|38|p2p
