@@ -5,12 +5,14 @@
 
 Port 1338
 
-## `Interface 'private'` in dropbear bound the daemon to that zone only.
-## openssh has no interface binding, only address binding — so this is the
-## br-private gateway address, v4 and v6. If you change the PRIVATE subnet,
-## change these too or you will lock yourself out.
-ListenAddress 192.168.37.1
-ListenAddress fdb6:747a:d337:2::1
+## NO ListenAddress, deliberately. dropbear's `Interface 'private'` has no
+## openssh equivalent, and using ListenAddress for it made every boot a race:
+## openssh treats an unbindable address as FATAL, so if br-private is not up
+## when sshd starts, sshd exits and procd respawns it forever with no way in.
+##
+## The zone input policies give the same restriction and cannot crash-loop:
+## wan DROP, iot DROP, guest DROP, svc ACCEPT, private ACCEPT. sshd binds
+## 0.0.0.0:1338 and the firewall decides who reaches it.
 
 ## PasswordAuth 'off' + RootPasswordAuth 'off'
 PasswordAuthentication no

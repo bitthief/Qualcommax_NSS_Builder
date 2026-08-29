@@ -215,12 +215,9 @@ config rule
 
 ## Belt and braces behind the NTP hijack: anything the DNAT misses cannot
 ## reach a time server through a tunnel either.
-config rule
-	option name 'Drop-NTP-IOT'
-	option src 'iot'
-	option proto 'udp'
-	option dest_port '123'
-	option target 'DROP'
+## Drop-NTP-IOT intentionally removed alongside br-iot's removal from the NTP
+## hijack. With the hijack gone, this rule would block IOT time sync outright
+## rather than redirecting it — the two have to move together.
 
 config rule
 	option name 'Drop-NTP-GUEST'
@@ -797,7 +794,8 @@ config rule
 	option family 'ipv4'
 	option target 'ACCEPT'
 
-## Daikin AC discovery
+## Daikin AC discovery — all six DISABLED, matching the device. Re-enable as a
+## set if the units come back; they are useless individually.
 config rule
 	option name 'Allow-Daikin-Discovery-Broadcast-IOT-to-GUEST'
 	option src 'iot'
@@ -809,6 +807,7 @@ config rule
 	list dest_ip '255.255.255.255'
 	option family 'ipv4'
 	option target 'ACCEPT'
+	option enabled '0'
 
 config rule
 	option name 'Allow-Daikin-Discovery-Broadcast-IOT-to-PRIVATE'
@@ -821,6 +820,7 @@ config rule
 	list dest_ip '255.255.255.255'
 	option family 'ipv4'
 	option target 'ACCEPT'
+	option enabled '0'
 
 config rule
 	option name 'Allow-Daikin-Discovery-Source-GUEST-to-IOT'
@@ -831,6 +831,7 @@ config rule
 	list src_port '30050'
 	option family 'ipv4'
 	option target 'ACCEPT'
+	option enabled '0'
 
 config rule
 	option name 'Allow-Daikin-Discovery-Destination-GUEST-to-IOT'
@@ -841,6 +842,7 @@ config rule
 	list dest_port '30050'
 	option family 'ipv4'
 	option target 'ACCEPT'
+	option enabled '0'
 
 config rule
 	option name 'Allow-Daikin-Discovery-Source-PRIVATE-to-IOT'
@@ -851,6 +853,7 @@ config rule
 	list src_port '30050'
 	option family 'ipv4'
 	option target 'ACCEPT'
+	option enabled '0'
 
 config rule
 	option name 'Allow-Daikin-Discovery-Destination-PRIVATE-to-IOT'
@@ -861,6 +864,7 @@ config rule
 	list dest_port '30050'
 	option family 'ipv4'
 	option target 'ACCEPT'
+	option enabled '0'
 
 ##############################################################################
 ## SECTION 5 — Device control
@@ -1076,10 +1080,60 @@ config rule
 	option enabled '0'
 
 ##############################################################################
+## SECTION 10 — rules carried from the running device
+##############################################################################
+
+## ACTIVE. Note what this does: src 'wan' with no dest is an INPUT rule, so it
+## opens UDP/123 on the router to the internet. chrony's `allow` list only
+## covers the four LAN zones so it will refuse to answer, but the port is
+## reachable. A chrony client does not need this — conntrack already permits
+## the replies to its own queries. Worth deleting unless something specific
+## depends on it.
+config rule
+	option name 'Allow-NTP'
+	option src 'wan'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'ACCEPT'
+
+## ACTIVE, and redundant with `config forwarding guest -> wireguard` above.
+## Harmless duplication; kept because it is on the device.
+config rule
+	option name 'Allow-GUEST-to-WIREGUARD'
+	option src 'guest'
+	option dest 'wireguard'
+	option target 'ACCEPT'
+
+## Escape hatches, both disabled. Same shape as Allow-GUEST-to-WAN: flip
+## enabled to '1' if a zone needs to bypass its tunnel temporarily, and
+## remember that doing so also bypasses the DoH/DoT drops for that zone.
+config rule
+	option name 'Allow-SVC-to-WAN'
+	option src 'svc'
+	option dest 'wan'
+	list proto 'all'
+	option target 'ACCEPT'
+	option enabled '0'
+
+config rule
+	option name 'Allow-IOT-to-WAN'
+	option src 'iot'
+	option dest 'wan'
+	list proto 'all'
+	option target 'ACCEPT'
+	option enabled '0'
+
+##############################################################################
 ## Includes
 ##############################################################################
 ## /etc/firewall.d/* is NOT referenced. fw4 never sourced it; those scripts
 ## were fw3-era and have been dead since you moved to firewall4.
+
+## Added by the bcp38 package's uci-defaults. Carried explicitly so shipping
+## our own /etc/config/firewall does not drop it on a fresh flash.
+config include 'bcp38'
+	option type 'script'
+	option path '/usr/lib/bcp38/run.sh'
 
 config include 'nftables_rules'
 	option type 'nftables'

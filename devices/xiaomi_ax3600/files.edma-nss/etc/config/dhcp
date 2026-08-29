@@ -32,6 +32,8 @@ config dnsmasq
 	## picks up /etc/dnsmasq.d/10-doh-nftset.conf (the @doh/@doh6 population)
 	option confdir '/tmp/dnsmasq.d'
 	list addnmount '/etc/dnsmasq.d'
+	## added by pbr for its resolver set support
+	list addnmount '/var/run/pbr.dnsmasq'
 	##
 	## SPLIT-DNS BOOTSTRAP ESCAPE HATCH — do not remove without thinking.
 	## These three domains resolve directly via 1.1.1.1 instead of through
@@ -85,25 +87,36 @@ config dhcp 'wan6'
 
 config dhcp 'svc'
 	option interface 'svc'
+	option dhcpv4 'server'
 	option start '2'
 	option limit '64'
-	option leasetime '12h'
 	option dhcpv6 'server'
 	option ra 'server'
 	option ra_management '1'
 	option ra_default '1'
 	option ra_preference 'high'
 	option ra_flags 'managed-config other-config'
-	option ndp 'disabled'
 	## NTP is NOT advertised. Option 42 would tell clients where the time
 	## server is; /etc/nftables.d/30-ntphijack.nft DNATs every UDP/123 to the
 	## zone gateway regardless, so advertising it adds a second mechanism that
 	## can disagree with the first. The hijack catches clients with hardcoded
 	## servers too, which option 42 cannot. One mechanism.
 	##
-	## dhcpv4 is deliberately NOT set. dnsmasq serves v4 from start/limit in
-	## each zone below; odhcpd (maindhcp '0') serves v6 only. Your logs settle
-	## it — every DHCPACK is dnsmasq, odhcpd logged nothing.
+	## dhcpv4 'server' IS set on every zone. It is required — confirmed twice
+	## empirically, on two separate images, and I was wrong to argue against it
+	## from theory both times.
+	##
+	## What is NOT explained: your logs show every DHCPACK coming from dnsmasq
+	## and nothing at all from odhcpd, so odhcpd is not the thing serving. The
+	## flag changes something that makes dnsmasq's DHCP work, and I do not know
+	## what. Do not remove it to find out.
+	##
+	## Leading hypothesis, yours: these bridges have no carrier until a client
+	## associates or a cable is plugged, and dnsmasq with bind-dynamic
+	## (nonwildcard '1') will not bind DHCP to an interface in that state.
+	## Setting dhcpv4 makes odhcpd open its own socket on the interface, which
+	## may be what forces it to a usable state. See the bisection note at the
+	## bottom of this file.
 	##
 	## ROOT CAUSE of the DHCP outage, since it was not what either of us
 	## thought: UCI aborts an entire file on a malformed line rather than
@@ -122,20 +135,18 @@ config dhcp 'svc'
 	list dhcp_option '43,01:04:00:00:00:02'
 	list dhcp_option '44'
 	list dhcp_option '252,"\n"'
-	option dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 config dhcp 'iot'
 	option interface 'iot'
-	option start '100'
+	option dhcpv4 'server'
 	option limit '254'
-	option leasetime '12h'
 	option dhcpv6 'server'
 	option ra 'server'
 	option ra_management '1'
 	option ra_default '1'
 	option ra_preference 'high'
 	option ra_flags 'managed-config other-config'
-	option ndp 'disabled'
 	list dhcp_option '6,192.168.137.2'
 	list dhcp_option '43,01:04:00:00:00:02'
 	list dhcp_option '44'
@@ -144,6 +155,7 @@ config dhcp 'iot'
 
 config dhcp 'guest'
 	option interface 'guest'
+	option dhcpv4 'server'
 	option start '2'
 	option limit '250'
 	option leasetime '6h'
@@ -152,15 +164,15 @@ config dhcp 'guest'
 	option ra_management '1'
 	option ra_default '1'
 	option ra_flags 'managed-config other-config'
-	option ndp 'disabled'
 	list dhcp_option '6,192.168.137.2'
 	list dhcp_option '43,01:04:00:00:00:02'
 	list dhcp_option '44'
 	list dhcp_option '252,"\n"'
-	option dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 config dhcp 'private'
 	option interface 'private'
+	option dhcpv4 'server'
 	option start '5'
 	option limit '250'
 	option leasetime '6h'
@@ -170,18 +182,19 @@ config dhcp 'private'
 	option ra_default '1'
 	option ra_preference 'high'
 	option ra_flags 'managed-config other-config'
-	option ndp 'disabled'
 	list dhcp_option '6,192.168.137.2'
 	list dhcp_option '43,01:04:00:00:00:02'
 	list dhcp_option '44'
 	list dhcp_option '252,"\n"'
-	option dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 config odhcpd 'odhcpd'
 	option maindhcp '0'
-	option leasefile '/tmp/hosts/odhcpd'
+	option leasefile '/tmp/odhcpd.leases'
 	option leasetrigger '/usr/sbin/odhcpd-update'
 	option loglevel '3'
+	option piodir '/tmp/odhcpd-piodir'
+	option hostsdir '/tmp/hosts'
 
 ## Static leases. Your old /etc/config/dhcp had three `config host` sections;
 ## they are carried below. The collector
@@ -234,3 +247,27 @@ config host
 ## To go back to a hostid-based address later, fix the DUID first:
 ##     pi$ sudo cat /var/lib/NetworkManager/secret_key   # or dhcpcd duid
 ## and put the real value in `option duid` here.
+
+##############################################################################
+## OPEN BUG — dhcpv4 'server' is load-bearing and nobody knows why
+##############################################################################
+## Symptom: without `option dhcpv4 'server'` on the zone sections, no DHCPv4
+## on any bridge. Wi-Fi clients associate and stall forever without a lease.
+## With it, immediate and reliable. Reproduced across builds and across years.
+##
+## Bisection, one variable at a time, `/etc/init.d/dnsmasq restart` between:
+##
+##  1. force_link. Add `option force_link '1'` to the four bridge INTERFACES in
+##     /etc/config/network, remove dhcpv4, retest. If DHCP works, carrier state
+##     was the cause and force_link is the real fix.
+##  2. bind-dynamic. Remove `option nonwildcard '1'` from the dnsmasq section
+##     (and the four `list interface` lines), restore dhcpv4-less, retest. If it
+##     works, dnsmasq's interface binding was the cause.
+##  3. drop_invalid. Set firewall.@defaults[0].drop_invalid='0' and retest — a
+##     DHCP DISCOVER from 0.0.0.0 is exactly the kind of thing conntrack calls
+##     INVALID.
+##  4. Instrument directly:
+##       ss -ulpn | grep -E ':67|:547'
+##       logread -e dnsmasq | grep -i 'DHCP.*range\|listening'
+##     Compare the bound sockets and the "DHCP, IP range" lines with and
+##     without the flag. That is the observation that settles it.

@@ -1,0 +1,17 @@
+# /etc/wg-failover/wg0.peers  — rename to drop .example to activate
+#
+#   public_key|endpoint_host|endpoint_port|description
+#
+# Each Proton server has its own public key, so a candidate is a (key,
+# endpoint) pair — you cannot keep the key and swap only the host. Generate
+# several configs against the same private key and lift the pairs out.
+#
+# Port 443 throughout: Digi/RCS-RDS filters UDP 51820.
+#
+# Order does not matter; the script re-ranks by RTT hourly and caches to
+# /var/run/wg-failover/wg0.ranked. Force a re-rank with:
+#   rm /var/run/wg-failover/*.ranked.at
+#
+# aBcD...=|193.148.16.10|443|CH-AT#1 secure core
+# eFgH...=|193.148.16.11|443|CH-AT#2 secure core
+# iJkL...=|185.159.157.20|443|CH#5
