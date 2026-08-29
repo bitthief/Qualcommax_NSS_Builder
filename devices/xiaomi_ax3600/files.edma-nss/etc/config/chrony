@@ -88,9 +88,15 @@ config allow
 ## Step the clock only in the first 5 updates, and only for offsets above 1s.
 ## After that, slew. A source that suddenly claims a wildly different time
 ## cannot yank the clock — it just fails to agree with the other two.
+## limit -1 means "step at any time", not just during the first N updates.
+## That matters here because the board has no RTC: cold-boot time comes from
+## sysfixtime reading the newest mtime in /etc, so the initial offset can be
+## large and NTS-KE may need several attempts before it succeeds. With a finite
+## limit you can burn every allowed step before the first successful sync and
+## then be left slewing a multi-year offset, which never converges.
 config makestep 'makestep'
 	option threshold '1.0'
-	option limit '5'
+	option limit '-1'
 
 config dhcp_ntp_server 'dhcp_ntp_server'
 	option disabled '1'

@@ -148,6 +148,7 @@ config interface 'guest'
 	option ip6assign '64'
 	option ip6hint '0'
 	option mtu '1500'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 config interface 'iot'
 	option proto 'static'
@@ -156,6 +157,7 @@ config interface 'iot'
 	option netmask '255.255.255.0'
 	option ip6assign '64'
 	option ip6hint '1'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 config interface 'private'
 	option proto 'static'
@@ -164,6 +166,7 @@ config interface 'private'
 	option netmask '255.255.255.0'
 	option ip6assign '64'
 	option ip6hint '2'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 config interface 'svc'
 	option proto 'static'
@@ -172,6 +175,7 @@ config interface 'svc'
 	option netmask '255.255.255.0'
 	option ip6assign '64'
 	option ip6hint '3'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
 ##############################################################################
 ## WireGuard

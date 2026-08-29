@@ -30,13 +30,20 @@ COUNTRY='RO'
 ## ---------------------------------------------------------------- network
 # Flat br-lan across every wired port; stock image already builds it.
 # Only the address and the NSS-hostile globals change.
-uci -q batch <<EOF
-set network.lan.proto='static'
-set network.lan.ipaddr='${RECOVERY_IP}'
-set network.lan.netmask='255.255.255.0'
-delete network.lan.ip6assign
-set network.globals.packet_steering='0'
-EOF
+## network.lan does not exist in the production image (svc/iot/guest/private),
+## so this is guarded. In a stock-image recovery it does, and gives the flat
+## fallback network.
+if uci -q get network.lan >/dev/null 2>&1; then
+	uci -q batch <<-EOF
+		set network.lan.proto='static'
+		set network.lan.ipaddr='${RECOVERY_IP}'
+		set network.lan.netmask='255.255.255.0'
+		delete network.lan.ip6assign
+	EOF
+else
+	RECOVERY_NET=private
+fi
+uci -q set network.globals.packet_steering='0'
 uci commit network
 
 ## -------------------------------------------------------------------- NSS
@@ -104,7 +111,7 @@ add_recovery_ap() {
 	uci -q batch <<-EOF
 		set wireless.rec_${dev}='wifi-iface'
 		set wireless.rec_${dev}.device='${dev}'
-		set wireless.rec_${dev}.network='lan'
+		set wireless.rec_${dev}.network='${RECOVERY_NET:-lan}'
 		set wireless.rec_${dev}.mode='ap'
 		set wireless.rec_${dev}.ssid='${RECOVERY_SSID}'
 		set wireless.rec_${dev}.encryption='psk2'
@@ -116,27 +123,16 @@ config_load wireless
 config_foreach add_recovery_ap wifi-device
 uci commit wireless
 
-## ------------------------------------------------- sshd on the recovery IP
-## sshd_config binds to the PRIVATE gateway only. If you land here, PRIVATE
-## may not exist yet — so add the recovery address, in BOTH families. The v6
-## one is not decoration: a working v6 path is what saved you the serial cable
-## last time, and v4 DHCP is exactly what tends to be broken when you need it.
+## Deliberately does NOT touch sshd.
 ##
-## These lines are marked and are removed again by inject-secrets.sh when you
-## set KEEP_RECOVERY_AP=0, alongside the recovery AP itself. Same flag, same
-## moment, so there is one thing to remember rather than two.
-SSHD=/etc/ssh/sshd_config
-if [ -f "$SSHD" ] && ! grep -q 'RECOVERY-LAYER' "$SSHD"; then
-	{
-		echo ""
-		echo "# --- RECOVERY-LAYER BEGIN (removed by inject-secrets.sh) ---"
-		echo "ListenAddress ${RECOVERY_IP}"
-		echo "ListenAddress fe80::%br-lan"
-		echo "# --- RECOVERY-LAYER END ---"
-	} >> "$SSHD"
-	echo "recovery ListenAddress added to sshd_config"
-	/etc/init.d/sshd restart 2>/dev/null || /etc/init.d/openssh restart 2>/dev/null || true
-fi
+## This block used to append ListenAddress lines for the recovery IP. Both were
+## broken: `fe80::%br-lan` is not a valid sshd address (a scope needs a real
+## address, not a bare prefix) and that is a fatal parse error, and
+## 192.168.99.1 never exists in this image because the production network has
+## no `lan` interface. sshd exited at parse time and respawned forever.
+##
+## sshd_config now carries no ListenAddress at all, so sshd binds every
+## address including anything this script brings up. Nothing to patch.
 
 ## ---------------------------------------------------------------- marker
 echo "recovery-layer applied $(date)" > /etc/recovery-layer.stamp

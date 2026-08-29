@@ -1,5 +1,8 @@
-## /etc/config/luci_plugins
-## Carried from your working config so LuCI's plugin list is not regenerated
-## empty on a clean flash.
+## /etc/config/luci_plugins — both sections, as on the device. My earlier file
+## had only `config plugins 'plugins'` and then only `config global 'global'`;
+## the device carries both.
 config plugins 'plugins'
+	option enabled '1'
+
+config global 'global'
 	option enabled '1'

@@ -14,7 +14,70 @@ exec >>/tmp/wireless-ath11k.log 2>&1
 echo "=== $(date) ath11k setup ==="
 . /lib/functions.sh
 
-COUNTRY='RO'
+## REGULATORY DOMAIN — read the notes before changing this back.
+##
+## US rather than RO, empirically: with RO (ETSI) every usable high channel is
+## DFS, and DFS does not work on this driver — CAC never completes, hostapd
+## falls back to ACS, and you land on a congested low channel. US opens
+## UNII-3 (149-165), which is non-DFS and permits 30 dBm.
+##
+## WHAT YOU GIVE UP: 160 MHz. The only contiguous 160 MHz blocks in 5 GHz are
+## 36-64 and 100-128. UNII-3 is 80 MHz wide in total, so 149+ caps at HE80.
+## HE160 requires 100-128, which requires DFS, which is the thing that does not
+## work. You have traded width for a channel that actually comes up, and given
+## DFS is broken here that is the right trade — but it is 80, not 160.
+##
+## WHAT ELSE CHANGES: US drops 2.4 GHz channels 12 and 13. The IoT radio on 3
+## and this one on 9 are both unaffected; anything above 11 would vanish.
+##
+## Romania is ETSI, and 5725-5850 MHz is not allocated for Wi-Fi under
+## EN 301 893. Stating it once because it is a fact about the band, not to
+## argue with you — the consequence that actually bites is that you get no
+## interference protection there and neither does anyone else.
+COUNTRY='US'
+
+## 5 GHz channel and width. Set these to whatever you confirmed working from
+##     iw dev phy0-ap0 info
+##     iwinfo phy0-ap0 info      # compare Tx-Power to what you asked for
+## 149 is the bottom of UNII-3. 'auto' lets ACS choose across the enlarged set,
+## which with US regdom will now include the high channels.
+CH_5G='129'
+## HE160 on 161 works — iw confirms width 160, centre 5815 — but it is very
+## probably why you are NOT seeing 700-800 Mbit/s, and 149/HE80 likely will.
+##
+## A 160 MHz channel centred on 5815 spans 5735-5895 MHz. UNII-3 ends at 5850.
+## The top 45 MHz of that block is UNII-4 (5850-5925), which the FCC only opened
+## in 2020 and which almost no client radio supports. A client that does not
+## know UNII-4 cannot use the full width and negotiates down — so you advertise
+## 160 and get 80 or less, with none of the range you gave up to get it.
+##
+## The corroborating evidence is in your own station table: your fastest links
+## are 258 and 286 Mbit/s on the 2.4 GHz radio at 20 MHz (HE-MCS 10/11, NSS 2),
+## while the one client on 5 GHz sits at -70 dBm negotiating 20 MHz MCS 7. The
+## 5 GHz radio is not carrying your fast clients at all.
+##
+## ALTERNATIVE, and what I would try for throughput:
+##     CH_5G='149'   HTMODE_5G='HE80'
+## 149 with 80 MHz centres on 5775 and spans 5735-5815 — entirely inside
+## UNII-3, supported by anything that does 5 GHz in the US band. 80 MHz at
+## HE-MCS 11 NSS 2 is ~1.2 Gbit/s PHY, which is where 700-800 Mbit/s of real
+## TCP comes from. Better range than 160 for the same power, so clients stay on
+## 5 GHz instead of sliding to 2.4.
+##
+## Left at 161/HE160 because it is what you have working. One line to change.
+HTMODE_5G='HE160'
+
+## txpower: 30 dBm is 1 W EIRP, the UNII-3 ceiling. On a 4x4 radio the driver
+## splits that across chains and applies min(regulatory, hardware, per-chain),
+## so `iwinfo` will very likely report less than you asked for — check rather
+## than assume.
+##
+## Worth weighing against your own earlier goal of running lower power in a
+## 45 m2 flat: 30 dBm is roughly 20x the 17 dBm you were aiming for. In a small
+## space it also desenses the 2.4 GHz radio in the same chassis and makes
+## roaming decisions worse, not better. The channel unlock is the win here;
+## the power is the part to walk back once it is stable.
+TXPOWER_5G='30'
 
 ## SINGLE SSID PER NETWORK, BOTH BANDS — this is what usteer steers.
 ## Band steering only works if the two radios advertise the same SSID; with
@@ -66,13 +129,40 @@ common_vap() {  # common_vap <section>
 	uci -q batch <<-EOF
 		set wireless.$1.mode='ap'
 		set wireless.$1.encryption='sae-mixed'
+		## WPA3 extras you set by hand, carried so a reflash keeps them.
+		## They are also the prime suspect for the FT breakage noted below:
+		## FT-SAE with extended keys and GCMP-256 is where "Missing required
+		## pairwise in pull response" comes from. Harmless with 802.11r off; if
+		## you re-enable FT, remove these first and add them back one at a time.
+		set wireless.$1.gcmp256='1'
+		set wireless.$1.sae_ext_key='1'
 		set wireless.$1.doth='1'
 		set wireless.$1.ieee80211w='2'
-		set wireless.$1.ieee80211r='1'
-		set wireless.$1.ieee80211k='1'
-		set wireless.$1.ft_over_ds='1'
-		set wireless.$1.ft_psk_generate_local='1'
-		set wireless.$1.pmk_r1_push='1'
+		## 802.11r OFF. FT between your own two VAPs was failing with
+		##   FT: Missing required pairwise in pull response
+		##   nl80211: kernel reports: key addition failed
+		##   handle_assoc_cb: STA ... not found
+		## and the client re-associated in a loop every ~30 s. The likely
+		## trigger is FT-SAE combined with gcmp256 + sae_ext_key, where the
+		## cipher does not survive the R0KH pull.
+		##
+		## On a single AP, FT only speeds the 2.4<->5 GHz hop on the same box —
+		## a few hundred milliseconds, against a roaming loop. usteer steers
+		## with 802.11v BSS Transition, which does not need FT at all.
+		## Revisit if you add a second AP AND the cipher stack settles.
+		set wireless.$1.ieee80211r='0'
+		## 802.11k OFF. It is what usteer uses to poll clients with beacon
+		## measurement requests, and on a SINGLE AP those reports are useless:
+		## neighbour reports exist to tell a client about other APs, and there
+		## are none. All they produced was BEACON-REQ-TX-STATUS /
+		## BEACON-RESP-RX at daemon.notice every 10 seconds per client,
+		## flooding the log.
+		##
+		## Band steering is unaffected — usteer steers with 802.11v BSS
+		## Transition Management, which stays on below. Turn this back on if
+		## you ever add a second AP, where the neighbour reports start earning
+		## their airtime.
+		set wireless.$1.ieee80211k='0'
 		set wireless.$1.wpa_disable_eapol_key_retries='1'
 		set wireless.$1.time_advertisement='2'
 		set wireless.$1.wnm_sleep_mode='1'
@@ -102,9 +192,9 @@ if [ -n "$R5G" ]; then
 		## This is also the only way to get a real HE160: the sole clean
 		## 160 MHz block in ETSI is 100-128, all of it DFS. On 'auto' you were
 		## silently getting 80 MHz.
-		set wireless.${R5G}.channel='100'
-		set wireless.${R5G}.htmode='HE160'
-		set wireless.${R5G}.txpower='23'
+		set wireless.${R5G}.channel='${CH_5G}'
+		set wireless.${R5G}.htmode='${HTMODE_5G}'
+		set wireless.${R5G}.txpower='${TXPOWER_5G}'
 		set wireless.${R5G}.distance='15'
 		set wireless.${R5G}.beacon_int='100'
 		set wireless.${R5G}.cell_density='0'
@@ -160,7 +250,10 @@ if [ -n "$R24" ]; then
 		## Band budget for when MEDIA arrives: 2.4 GHz gives ~83 MHz total, so
 		## one 40 MHz block plus one 20 MHz block plus guard is all that fits.
 		## A third network in this band has to share one of them.
-		set wireless.${R24}.channel='9'
+		## Channel 11 with HE40 -> HT40- -> occupies 7-11, centre channel 9 (2452),
+		## spanning 2432-2472. Clear of the IoT radio's 20 MHz on channel 1.
+		## US regdom removed 12-13, so HT40+ is not available up here anyway.
+		set wireless.${R24}.channel='11'
 		set wireless.${R24}.htmode='HE40'
 		set wireless.${R24}.txpower='20'
 		set wireless.${R24}.distance='15'
@@ -170,21 +263,38 @@ if [ -n "$R24" ]; then
 		set wireless.${R24}.he_su_beamformer='1'
 		set wireless.${R24}.he_su_beamformee='0'
 		set wireless.${R24}.he_mu_beamformer='1'
+		## REQUIRED for the 40 MHz to actually stick. Without it hostapd runs
+		## the 20/40 coexistence scan, finds neighbours in the secondary
+		## channel range — guaranteed in an apartment — and silently falls back
+		## to 20 MHz. iwinfo will keep reporting HE40 while iw reports
+		## width: 20 MHz, which is how this hid.
+		##
+		## Be clear about what this is: deliberately ignoring the coexistence
+		## rule. It takes 40 MHz whether or not the neighbours are using it, and
+		## degrades them accordingly. Defensible for one radio in a flat where
+		## you have measured the band; not something to enable everywhere.
+		set wireless.${R24}.noscan='1'
 		delete wireless.${R24}.acs_chan_bias
-		set wireless.guest_24='wifi-iface'
-		set wireless.guest_24.device='${R24}'
-		set wireless.guest_24.network='guest'
-		set wireless.guest_24.ssid='${SSID_GUEST}'
-		set wireless.guest_24.isolate='0'
-		set wireless.guest_24.proxy_arp='1'
-		set wireless.private_24='wifi-iface'
-		set wireless.private_24.device='${R24}'
-		set wireless.private_24.network='private'
-		set wireless.private_24.ssid='${SSID_PRIVATE}'
-		set wireless.private_24.isolate='1'
-	EOF
-	common_vap guest_24
-	common_vap private_24
+EOF
+		## NO guest/private VAPs on 2.4 GHz — deliberately.
+		##
+		## With one SSID across both bands, clients pick by RSSI and 2.4 GHz
+		## wins at close range (-41 dBm vs -58). usteer can only ASK them to
+		## move: assoc_steering refuses the first association, after which the
+		## only lever is a BSS Transition Management request — and the logs show
+		## clients declining it (BSS-TM-RESP status_code=7). That argument is
+		## not winnable by steering, only by removing the choice.
+		##
+		## So private and guest are 5 GHz only.
+		##
+		## THE RISK IS GUEST: a visitor with an older phone, or any 2.4-only
+		## device someone brings, now has no network. If that bites, re-add a
+		## guest_24 VAP here or hand out the IoT SSID.
+		##
+		## This radio is now free for MEDIA — 2x2 at 40 MHz on channel 11, much
+		## better for two TVs than the 1x1 ath10k. That needs a bridge, subnet,
+		## firewall zone and pbr policy, so it is a separate change; the radio
+		## stays configured and idle until then.
 fi
 
 uci commit wireless

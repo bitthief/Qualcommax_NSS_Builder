@@ -5,6 +5,21 @@
 ## bad time by an on-path attacker, and cannot leak to WAN by hardcoding
 ## their own server. The router's own upstream sync is NTS-authenticated.
 ##
+## br-iot is DELIBERATELY ABSENT. Both air-Q sensors jumped to 26.11.2063 and
+## lost AWS MQTT after the hijack went in, because their SNTP client mishandled
+## something in chrony's reply and set the clock anyway.
+##
+## The general point, not just the air-Q: hijacking NTP is materially riskier
+## than hijacking DNS. A DNS client that gets a bad answer retries or fails
+## visibly. An SNTP client that mishandles a reply sets its clock and carries
+## on, and appliance firmware routinely skips the checks that would catch it —
+## LI=3 unsynchronised, stratum 0, Kiss-o'-Death. You gain very little by
+## forcing appliances through your own time server, and this is what it costs.
+##
+## IOT clients now reach their own NTP servers through wg3 like any other
+## traffic. If you ever want them back, the Drop-NTP-IOT firewall rule has to
+## come back with them, or they will be blocked rather than redirected.
+##
 ## Returns for the gateway address of each zone so the router's own traffic
 ## and any deliberate direct query are not redirected into themselves.
 
@@ -13,17 +28,15 @@ chain ntphijack {
   ip6 daddr { fdb6:747a:d337:0::1, fdb6:747a:d337:1::1, fdb6:747a:d337:2::1, fdb6:747a:d337:3::1 } return comment "!fw4: NTPHIJACK - already the gateway"
 
   meta iifname "br-svc"     dnat ip to 192.168.137.1 comment "!fw4: NTPHIJACK"
-  meta iifname "br-iot"     dnat ip to 192.168.32.1  comment "!fw4: NTPHIJACK"
   meta iifname "br-guest"   dnat ip to 192.168.33.1  comment "!fw4: NTPHIJACK"
   meta iifname "br-private" dnat ip to 192.168.37.1  comment "!fw4: NTPHIJACK"
 
   meta iifname "br-svc"     dnat ip6 to fdb6:747a:d337:3::1 comment "!fw4: NTPHIJACK"
-  meta iifname "br-iot"     dnat ip6 to fdb6:747a:d337:1::1 comment "!fw4: NTPHIJACK"
   meta iifname "br-guest"   dnat ip6 to fdb6:747a:d337:0::1 comment "!fw4: NTPHIJACK"
   meta iifname "br-private" dnat ip6 to fdb6:747a:d337:2::1 comment "!fw4: NTPHIJACK"
 }
 
 chain dstnat {
   type nat hook prerouting priority -100; policy accept;
-  iifname { "br-iot", "br-guest", "br-private", "br-svc" } udp dport 123 jump ntphijack comment "!fw4: NTPHIJACK"
+  iifname { "br-guest", "br-private", "br-svc" } udp dport 123 jump ntphijack comment "!fw4: NTPHIJACK"
 }

@@ -10,4 +10,13 @@
 ## path here regardless.
 
 config engine 'devcrypto'
+	option enabled '0'
+
+## Carried from the device. legacy re-enables the deprecated algorithm set;
+## oqsprovider is the Open Quantum Safe provider, which is what gives you the
+## post-quantum KEX groups in sshd_config.
+config provider 'legacy'
+	option enabled '1'
+
+config provider 'oqsprovider'
 	option enabled '1'

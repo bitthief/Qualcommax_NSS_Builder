@@ -12,7 +12,10 @@ exec >>/tmp/wireless-ath10k.log 2>&1
 echo "=== $(date) ath10k / IoT radio setup ==="
 . /lib/functions.sh
 
-COUNTRY='RO'
+## Must match the ath11k script's regdom — two radios in one chassis on
+## different domains is undefined behaviour. US keeps 2.4 GHz channels 1-11,
+## and this radio sits on 3, so nothing here changes.
+COUNTRY='US'
 SSID_IOT='TP-Link_1OT'
 
 fail() { echo "!! $*"; echo "!! IoT radio NOT configured; ath11k radios unaffected."; exit 0; }
@@ -76,7 +79,21 @@ set wireless.${RADIO}.band='2g'
 ## of the band free for the ath11k radio's 40 MHz block.
 ##
 ## Its 20 MHz span is roughly 2411-2433 MHz.
-set wireless.${RADIO}.channel='3'
+## Channel 1, 20 MHz, and noscan RETAINED.
+##
+## This radio was taking 40 MHz on channel 7 while the ath11k 2.4 GHz radio sat
+## at 20 — exactly backwards. The cause is `noscan '1'`: it disables the 20/40
+## coexistence scan, so this radio ignores everything else on the band and
+## claims 40 MHz, while the ath11k scans, sees this BSS plus the neighbours,
+## obeys the rules and falls back to 20.
+##
+## Seven 1x1 appliances sending a few hundred bytes gain nothing from 40 MHz.
+## Channel 1 at 20 MHz spans 2401-2423, leaving 2432-2472 free for the ath11k
+## radio's 40 MHz block centred on channel 9.
+##
+## noscan stays because appliance firmware benefits from the radio not going
+## off-channel to scan, and at 20 MHz it is not claiming spectrum it should not.
+set wireless.${RADIO}.channel='1'
 set wireless.${RADIO}.htmode='HT20'
 set wireless.${RADIO}.txpower='20'
 set wireless.${RADIO}.distance='15'
@@ -93,6 +110,21 @@ set wireless.iot_ap.mode='ap'
 set wireless.iot_ap.ssid='${SSID_IOT}'
 set wireless.iot_ap.encryption='sae-mixed'
 set wireless.iot_ap.doth='1'
+## 802.11w OPTIONAL. This VAP had no PMF at all, which is why a Chromecast on
+## this network could be deauthed trivially — without protected management
+## frames, anyone can spoof a deauth and force a reassociation, which is also
+## step one of capturing a WPA2 handshake.
+##
+## '1' not '2': with sae-mixed, REQUIRING PMF locks out every WPA2-only
+## appliance. Optional protects the clients that support it and leaves the
+## others working. The ath11k VAPs use '2' because their clients are modern.
+##
+## Note what this does NOT fix: sae-mixed still offers WPA2-PSK, and a client
+## that connects that way is still capturable. SAE itself is immune (it is a
+## PAKE, there is no offline-crackable hash), but you cannot drop WPA2 here
+## without losing the appliances. On PRIVATE, where every client is modern,
+## `encryption 'sae'` instead of 'sae-mixed' removes that class entirely.
+set wireless.iot_ap.ieee80211w='1'
 set wireless.iot_ap.ieee80211v='1'
 set wireless.iot_ap.wpa_disable_eapol_key_retries='1'
 set wireless.iot_ap.multicast_to_unicast_all='1'

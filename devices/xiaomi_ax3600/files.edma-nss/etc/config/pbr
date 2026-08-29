@@ -28,7 +28,7 @@ config pbr 'config'
 
 config policy
 	option name 'Local subnets - no policy routing'
-	option dest_addr '192.168.32.0/24 192.168.33.0/24 192.168.37.0/24 192.168.137.0/24 fdb6:747a:d337::/48 224.0.0.0/4 ff00::/8'
+	option dest_addr '192.168.32.0/24 192.168.33.0/24 192.168.37.0/24 192.168.137.0/24 fdb6:747a:d337::/48 169.254.0.0/16 172.16.0.0/12 224.0.0.0/4 ff00::/8'
 	option interface 'ignore'
 	option enabled '1'
 
@@ -130,8 +130,8 @@ config policy
 ## fallback, so a wg0 outage degrades to clear-WAN NTP rather than no NTP.
 
 config policy
-	option name 'Router NTP via wg0'
+	option name 'Router NTP via wg1'
 	option proto 'udp'
 	option dest_port '123'
-	option interface 'wg0'
-	option enabled '0'
+	option interface 'wg1'
+	option enabled '1'

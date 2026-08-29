@@ -1,0 +1,172 @@
+#!/bin/sh
+# wg-failover — rotate WireGuard peers when a tunnel stops handshaking, and
+# prefer low-latency endpoints when it has a choice.
+#
+# Install:
+#   /usr/libexec/wg-failover              this file, 0755
+#   /etc/wg-failover/<iface>.peers        candidate list per tunnel
+#   cron:  */2 * * * * /usr/libexec/wg-failover
+#
+# WHY NOT THE OBVIOUS ALTERNATIVES
+#   Multiple peers on one wg interface does not fail over: with 0.0.0.0/0 in
+#   allowed-ips on each, the last one loaded wins and the others are dead
+#   config. WireGuard has no notion of a preferred or backup peer.
+#   mwan3 does health-checking but you moved off it, and it tracks interfaces
+#   rather than endpoints — it cannot swap which server a tunnel points at.
+#   pbr does not health-check at all.
+#   So the peer has to be rewritten in place, which is what this does.
+#
+# CANDIDATE FILE FORMAT — /etc/wg-failover/wg0.peers
+#   One per line, pipe-delimited, # comments and blanks ignored:
+#     public_key|endpoint_host|endpoint_port|description
+#   preshared_key is intentionally absent: it is per-peer secret material and
+#   belongs in the uci config, not in a file this script rewrites. If your
+#   provider uses PSKs, add a fifth field and the set_peer() call below.
+#
+#   Proton note: each server has its own public key, so a candidate is a
+#   (key, endpoint) pair — you cannot keep the key and change only the host.
+#   Use port 443; Digi filters UDP 51820.
+
+set -u
+NAME=wg-failover
+PEERDIR=/etc/wg-failover
+STATEDIR=/var/run/wg-failover
+STALE=${STALE:-180}        # seconds without a handshake before rotating
+PROBE_EVERY=${PROBE_EVERY:-3600}   # re-rank candidates by latency this often
+LOCK=/var/lock/$NAME
+
+mkdir -p "$STATEDIR"
+[ -e "$LOCK" ] && exit 0
+lock -n "$LOCK" || exit 0
+trap 'lock -u "$LOCK"' EXIT
+
+log() { logger -t "$NAME" "$*"; [ -t 1 ] && echo "$*"; }
+
+##############################################################################
+# rank <iface> — order candidates by RTT, cache the result
+##############################################################################
+## Latency is measured to the endpoint host with ICMP. Proton's gateways answer
+## ping; if yours do not, every candidate scores equal and the file order is
+## kept, which is a sane fallback rather than a failure.
+##
+## Ranking is deliberately NOT done on every run: re-probing a dozen endpoints
+## every two minutes is both slow and a small fingerprint. Once an hour is
+## plenty for choosing between datacentres.
+rank() {
+	local iface="$1" src="$PEERDIR/$iface.peers" out="$STATEDIR/$iface.ranked"
+	local now last
+	now=$(date +%s)
+	last=$(cat "$STATEDIR/$iface.ranked.at" 2>/dev/null || echo 0)
+	if [ -s "$out" ] && [ $((now - last)) -lt "$PROBE_EVERY" ]; then return 0; fi
+
+	log "$iface: ranking candidates by RTT"
+	: > "$out.tmp"
+	while IFS='|' read -r pub host port desc; do
+		case "${pub:-}" in ''|\#*) continue ;; esac
+		[ -n "$host" ] || continue
+		# 3 pings, take the average; unreachable sorts last, not dropped —
+		# an endpoint that blocks ICMP may still carry WireGuard fine.
+		rtt=$(ping -c3 -W2 -q "$host" 2>/dev/null \
+			| sed -n 's/.*= [0-9.]*\/\([0-9.]*\)\/.*/\1/p')
+		[ -n "$rtt" ] || rtt=9999
+		printf '%s|%s|%s|%s|%s\n' "$rtt" "$pub" "$host" "$port" "${desc:-$host}"
+	done < "$src" | sort -t'|' -k1 -n > "$out.tmp"
+
+	if [ -s "$out.tmp" ]; then
+		mv "$out.tmp" "$out"; echo "$now" > "$STATEDIR/$iface.ranked.at"
+		log "$iface: best is $(head -1 "$out" | cut -d'|' -f5) at $(head -1 "$out" | cut -d'|' -f1) ms"
+	else
+		rm -f "$out.tmp"
+	fi
+}
+
+##############################################################################
+# set_peer <iface> <pubkey> <host> <port> <desc>
+##############################################################################
+## Rewrites the single wireguard_<iface> peer section and restarts the
+## interface. `ifup` rather than `wg set` on purpose: netifd owns the host
+## route to the endpoint (nohostroute is 0), and changing the endpoint behind
+## its back leaves a route pointing at the old server, which is exactly the
+## kind of half-state that is miserable to debug later.
+set_peer() {
+	local iface="$1" pub="$2" host="$3" port="$4" desc="$5"
+	local sec
+	while uci -q delete "network.@wireguard_${iface}[0]" 2>/dev/null; do :; done
+	sec="$(uci add network "wireguard_${iface}")"
+	uci -q batch <<-EOF
+		set network.${sec}.public_key='${pub}'
+		set network.${sec}.endpoint_host='${host}'
+		set network.${sec}.endpoint_port='${port}'
+		set network.${sec}.persistent_keepalive='25'
+		set network.${sec}.route_allowed_ips='0'
+		set network.${sec}.description='${desc}'
+		add_list network.${sec}.allowed_ips='0.0.0.0/0'
+		add_list network.${sec}.allowed_ips='::/0'
+	EOF
+	uci commit network
+	ifup "$iface"
+	log "$iface: switched to $desc ($host:$port)"
+	echo "$(date +%s)" > "$STATEDIR/$iface.switched"
+}
+
+##############################################################################
+# check <iface>
+##############################################################################
+check() {
+	local iface="$1" src="$PEERDIR/$iface.peers"
+	[ -s "$src" ] || return 0
+	ip link show "$iface" >/dev/null 2>&1 || { log "$iface: no such interface"; return 0; }
+
+	rank "$iface"
+	local ranked="$STATEDIR/$iface.ranked"
+	[ -s "$ranked" ] || ranked="$src"
+
+	local now hs age cur
+	now=$(date +%s)
+	# Newest handshake across peers. There is normally only one.
+	hs=$(wg show "$iface" latest-handshakes 2>/dev/null | awk '{if($2>m)m=$2}END{print m+0}')
+	age=$((now - hs))
+	[ "$hs" -eq 0 ] && age=99999
+
+	# Do not thrash: give a fresh switch time to complete a handshake before
+	# judging it. Two rotations a minute apart is a broken tunnel, not failover.
+	local switched=$(cat "$STATEDIR/$iface.switched" 2>/dev/null || echo 0)
+	if [ $((now - switched)) -lt 90 ]; then
+		log "$iface: switched $((now - switched))s ago, holding"
+		return 0
+	fi
+
+	if [ "$age" -lt "$STALE" ]; then
+		# Healthy. Opportunistically move to a better endpoint only if the
+		# current one is not already the best AND we have not moved recently.
+		cur=$(uci -q get "network.@wireguard_${iface}[0].endpoint_host")
+		local best_host=$(head -1 "$ranked" | cut -d'|' -f3)
+		if [ -n "${PREFER_BEST:-}" ] && [ "$cur" != "$best_host" ]; then
+			log "$iface: healthy but $cur is not the best; PREFER_BEST set, moving"
+			IFS='|' read -r _ pub host port desc < "$ranked"
+			set_peer "$iface" "$pub" "$host" "$port" "$desc"
+		fi
+		return 0
+	fi
+
+	log "$iface: no handshake for ${age}s, rotating"
+	cur=$(uci -q get "network.@wireguard_${iface}[0].endpoint_host")
+
+	# Walk the ranked list, skipping the one that just failed.
+	local picked=0
+	while IFS='|' read -r rtt pub host port desc; do
+		case "${pub:-}" in ''|\#*) continue ;; esac
+		[ "$host" = "$cur" ] && continue
+		set_peer "$iface" "$pub" "$host" "$port" "$desc"
+		picked=1
+		break
+	done < "$ranked"
+
+	[ "$picked" -eq 1 ] || log "$iface: no alternative candidate available"
+}
+
+for f in "$PEERDIR"/*.peers; do
+	[ -e "$f" ] || continue
+	iface="$(basename "$f" .peers)"
+	check "$iface"
+done
