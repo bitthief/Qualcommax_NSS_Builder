@@ -32,6 +32,12 @@ NAME=wg-failover
 PEERDIR=/etc/wg-failover
 STATEDIR=/var/run/wg-failover
 STALE=${STALE:-180}        # seconds without a handshake before rotating
+# Interfaces whose candidates MUST carry the p2p flag. Proton gates P2P by
+# server role, not by key attribute, so a NetShield-off key on a non-P2P server
+# still will not carry torrent traffic. Listing the interface here makes the
+# script refuse such candidates rather than rotate onto one that looks healthy
+# and silently drops the traffic you care about.
+REQUIRE_P2P=${REQUIRE_P2P:-"wg4"}
 PROBE_EVERY=${PROBE_EVERY:-3600}   # re-rank candidates by latency this often
 LOCK=/var/lock/$NAME
 
@@ -40,7 +46,10 @@ mkdir -p "$STATEDIR"
 lock -n "$LOCK" || exit 0
 trap 'lock -u "$LOCK"' EXIT
 
-log() { logger -t "$NAME" "$*"; [ -t 1 ] && echo "$*"; }
+# stderr, never stdout: rank() runs its loop inside a pipeline into sort, and a
+# log line on stdout would be parsed as a candidate. The old `[ -t 1 ]` guard
+# happened to prevent that, but only by accident of not having a terminal.
+log() { logger -t "$NAME" "$*"; echo "$*" >&2; }
 
 ##############################################################################
 # rank <iface> — order candidates by RTT, cache the result
@@ -60,21 +69,38 @@ rank() {
 	if [ -s "$out" ] && [ $((now - last)) -lt "$PROBE_EVERY" ]; then return 0; fi
 
 	log "$iface: ranking candidates by RTT"
+	local need_p2p=0
+	case " $REQUIRE_P2P " in *" $iface "*) need_p2p=1 ;; esac
+
 	: > "$out.tmp"
-	while IFS='|' read -r pub host port desc; do
+	while IFS='|' read -r pub host port label load flags; do
 		case "${pub:-}" in ''|\#*) continue ;; esac
 		[ -n "$host" ] || continue
-		# 3 pings, take the average; unreachable sorts last, not dropped —
-		# an endpoint that blocks ICMP may still carry WireGuard fine.
+
+		if [ "$need_p2p" = "1" ]; then
+			case ",${flags:-}," in
+				*,p2p,*) ;;
+				*) log "$iface: skipping ${label:-$host} — no p2p flag"; continue ;;
+			esac
+		fi
+
+		# 3 pings, average. Unreachable sorts last rather than being dropped:
+		# an endpoint that blocks ICMP may still carry WireGuard perfectly.
 		rtt=$(ping -c3 -W2 -q "$host" 2>/dev/null \
 			| sed -n 's/.*= [0-9.]*\/\([0-9.]*\)\/.*/\1/p')
 		[ -n "$rtt" ] || rtt=9999
-		printf '%s|%s|%s|%s|%s\n' "$rtt" "$pub" "$host" "$port" "${desc:-$host}"
-	done < "$src" | sort -t'|' -k1 -n > "$out.tmp"
+
+		# Sort key: RTT rounded to 5 ms buckets, then generation-time load.
+		# Load is a stale snapshot so it must never outrank real latency, but
+		# within a bucket it is better than arbitrary file order.
+		bucket=$(awk -v r="$rtt" 'BEGIN{printf "%08.1f", int(r/5)*5}')
+		printf '%s|%03d|%s|%s|%s|%s|%s\n' \
+			"$bucket" "${load:-50}" "$pub" "$host" "$port" "${label:-$host}" "${flags:-}"
+	done < "$src" | sort -t'|' -k1,1n -k2,2n > "$out.tmp"
 
 	if [ -s "$out.tmp" ]; then
 		mv "$out.tmp" "$out"; echo "$now" > "$STATEDIR/$iface.ranked.at"
-		log "$iface: best is $(head -1 "$out" | cut -d'|' -f5) at $(head -1 "$out" | cut -d'|' -f1) ms"
+		log "$iface: best is $(head -1 "$out" | cut -d'|' -f6)"
 	else
 		rm -f "$out.tmp"
 	fi
@@ -140,10 +166,10 @@ check() {
 		# Healthy. Opportunistically move to a better endpoint only if the
 		# current one is not already the best AND we have not moved recently.
 		cur=$(uci -q get "network.@wireguard_${iface}[0].endpoint_host")
-		local best_host=$(head -1 "$ranked" | cut -d'|' -f3)
+		local best_host=$(head -1 "$ranked" | cut -d'|' -f4)
 		if [ -n "${PREFER_BEST:-}" ] && [ "$cur" != "$best_host" ]; then
 			log "$iface: healthy but $cur is not the best; PREFER_BEST set, moving"
-			IFS='|' read -r _ pub host port desc < "$ranked"
+			IFS='|' read -r _ _ pub host port desc _ < "$ranked"
 			set_peer "$iface" "$pub" "$host" "$port" "$desc"
 		fi
 		return 0
@@ -154,7 +180,7 @@ check() {
 
 	# Walk the ranked list, skipping the one that just failed.
 	local picked=0
-	while IFS='|' read -r rtt pub host port desc; do
+	while IFS='|' read -r _ _ pub host port desc flags; do
 		case "${pub:-}" in ''|\#*) continue ;; esac
 		[ "$host" = "$cur" ] && continue
 		set_peer "$iface" "$pub" "$host" "$port" "$desc"
