@@ -1,0 +1,58 @@
+#!/bin/sh
+# proton-portfwd — maintain a Proton NAT-PMP port mapping on a WireGuard tunnel.
+#
+#   proton-portfwd --ensure      start the renewal loop if it is not running
+#   proton-portfwd --once        request once and print the port
+#   proton-portfwd --stop        drop the mapping and stop renewing
+#
+# Proton grants a forwarded port via NAT-PMP against the tunnel gateway
+# (10.2.0.1). The mapping has a 60-second lifetime and MUST be renewed inside
+# that window or the port silently closes — so this runs as a loop at 45 s,
+# not from cron, which cannot schedule below a minute.
+#
+# The assigned port is written to $PORTFILE for whatever needs to know it.
+# It is NOT stable across renewals in principle, though in practice Proton
+# returns the same port while the mapping stays alive.
+
+set -u
+IFACE="${IFACE:-wg4}"
+GATEWAY="${GATEWAY:-10.2.0.1}"
+PORTFILE=/var/run/proton-portfwd.$IFACE.port
+PIDFILE=/var/run/proton-portfwd.$IFACE.pid
+LIFETIME=60
+INTERVAL=45
+
+log() { logger -t proton-portfwd "$*"; echo "$*" >&2; }
+
+request() {
+	# UDP first, then TCP on the same port. Proton hands out one port for both;
+	# asking for TCP with a different internal port gets you a second mapping
+	# you did not want.
+	local out port
+	out=$(natpmpc -g "$GATEWAY" -a 1 0 udp $LIFETIME 2>&1) || { log "udp request failed: $out"; return 1; }
+	port=$(echo "$out" | sed -n 's/.*public port \([0-9]*\).*/\1/p' | head -1)
+	[ -n "$port" ] || { log "could not parse a port from: $out"; return 1; }
+	natpmpc -g "$GATEWAY" -a 1 "$port" tcp $LIFETIME >/dev/null 2>&1
+	echo "$port" > "$PORTFILE"
+	echo "$port"
+}
+
+case "${1:---ensure}" in
+	--once)
+		request ;;
+	--stop)
+		[ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
+		rm -f "$PIDFILE" "$PORTFILE"
+		natpmpc -g "$GATEWAY" -a 1 0 udp 0 >/dev/null 2>&1
+		log "stopped" ;;
+	--ensure)
+		if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then exit 0; fi
+		( echo $$ > "$PIDFILE"
+		  while :; do
+			ip link show "$IFACE" >/dev/null 2>&1 || { sleep "$INTERVAL"; continue; }
+			p=$(request) && log "mapping active: $p"
+			sleep "$INTERVAL"
+		  done ) >/dev/null 2>&1 &
+		log "renewal loop started for $IFACE" ;;
+	*) echo "usage: $0 [--ensure|--once|--stop]" >&2; exit 2 ;;
+esac

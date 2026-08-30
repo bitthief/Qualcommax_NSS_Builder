@@ -88,6 +88,19 @@ config zone
 	option masq6_privacy '1'
 	option network 'iot'
 
+## MEDIA. input DROP like guest and iot — two TVs need DHCP, DNS and NTP from
+## the router and nothing else. The explicit rules below cover exactly that.
+config zone
+	option name 'media'
+	option input 'DROP'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+	option mtu_fix '1'
+	option masq '0'
+	option masq6 '0'
+	option masq6_privacy '1'
+	option network 'media'
+
 config zone
 	option name 'guest'
 	option input 'DROP'
@@ -118,7 +131,7 @@ config zone
 	option mtu_fix '1'
 	option masq '1'
 	option masq_allow_invalid '1'
-	option network 'wg0 wg60 wg1 wg61 wg2 wg62 wg3 wg63'
+	option network 'wg0 wg60 wg1 wg61 wg2 wg62 wg3 wg63 wg4 wg64'
 
 ##############################################################################
 ## Forwardings — this is what makes fail-closed structural
@@ -163,6 +176,30 @@ config forwarding
 	option src 'private'
 	option dest 'wireguard'
 
+## MEDIA egresses via its tunnel and reaches the resolver. No path to wan, so
+## the fail-closed property holds here exactly as it does for the other zones.
+config forwarding
+	option src 'media'
+	option dest 'svc'
+
+config forwarding
+	option src 'media'
+	option dest 'wireguard'
+
+## PRIVATE -> MEDIA so you can cast and control the TVs from your phone.
+## Deliberately one-way: there is no media -> private forwarding, so a
+## compromised TV cannot reach back.
+config forwarding
+	option src 'private'
+	option dest 'media'
+
+## GUEST -> MEDIA so you can cast and control the TVs from your phone.
+## Deliberately one-way: there is no media -> guest forwarding, so a
+## compromised TV cannot reach back.
+config forwarding
+	option src 'guest'
+	option dest 'media'
+
 config forwarding
 	option src 'wireguard'
 	option dest 'wan'
@@ -193,6 +230,41 @@ config rule
 	list proto 'udp'
 	list dest_port '853'
 	list dest_port '8853'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoT-DoQ-MEDIA'
+	option src 'media'
+	list proto 'tcp'
+	list proto 'udp'
+	list dest_port '853'
+	list dest_port '8853'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH-MEDIA'
+	option src 'media'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-DoH6-MEDIA'
+	option src 'media'
+	list proto 'tcp'
+	list proto 'udp'
+	option dest_port '443'
+	option ipset 'doh6'
+	option family 'ipv6'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-NTP-MEDIA'
+	option src 'media'
+	option proto 'udp'
+	option dest_port '123'
 	option target 'DROP'
 
 config rule
@@ -447,6 +519,62 @@ config rule
 	option target 'ACCEPT'
 
 config rule
+	option name 'Allow-MEDIA-DHCP'
+	option src 'media'
+	option proto 'udp'
+	option src_port '67-68'
+	option dest_port '67-68'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-MEDIA-DHCPv6'
+	option src 'media'
+	option proto 'udp'
+	option src_port '546-547'
+	option dest_port '546-547'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-MEDIA-NDP'
+	option src 'media'
+	option proto 'icmp'
+	list icmp_type 'router-solicitation'
+	list icmp_type 'neighbour-solicitation'
+	list icmp_type 'neighbour-advertisement'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-MEDIA-NTP'
+	option src 'media'
+	option proto 'udp'
+	option dest_port '123'
+	option target 'ACCEPT'
+
+## avahi runs on the router and must RECEIVE the multicast arriving on
+## br-media, or its reflector has nothing to reflect and casting discovery
+## from PRIVATE never sees the TVs.
+config rule
+	option name 'Allow-MEDIA-mDNS-Input'
+	option src 'media'
+	option proto 'udp'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-MEDIA-mDNS6-Input'
+	option src 'media'
+	option proto 'udp'
+	option dest_port '5353'
+	option dest_ip 'ff02::fb'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
 	option name 'Allow-GUEST-DHCP'
 	option src 'guest'
 	option proto 'udp'
@@ -562,6 +690,16 @@ config rule
 config rule
 	option name 'Allow-DNS-IOT-to-SVC'
 	option src 'iot'
+	option dest 'svc'
+	list proto 'tcp'
+	list proto 'udp'
+	list dest_port '53'
+	list dest_port '853'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-DNS-MEDIA-to-SVC'
+	option src 'media'
 	option dest 'svc'
 	list proto 'tcp'
 	list proto 'udp'
@@ -725,6 +863,102 @@ config rule
 	option dest_port '5353'
 	option dest_ip 'ff02::fb'
 	option family 'ipv6'
+	option target 'ACCEPT'
+
+## Casting discovery, PRIVATE <-> MEDIA. Chromecast and DLNA use both mDNS and
+## SSDP, and discovery is bidirectional even though the control path is not:
+## the TV answers a query the phone sent. These are discovery only — the
+## forwarding table still permits private -> media and not the reverse.
+config rule
+	option name 'Allow-mDNS-PRIVATE-to-MEDIA'
+	option src 'private'
+	option dest 'media'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS-MEDIA-to-PRIVATE'
+	option src 'media'
+	option dest 'private'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-PRIVATE-to-MEDIA'
+	option src 'private'
+	option dest 'media'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-MEDIA-to-PRIVATE'
+	option src 'media'
+	option dest 'private'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+## Casting discovery, GUEST <-> MEDIA. Chromecast and DLNA use both mDNS and
+## SSDP, and discovery is bidirectional even though the control path is not:
+## the TV answers a query the phone sent. These are discovery only — the
+## forwarding table still permits guest -> media and not the reverse.
+config rule
+	option name 'Allow-mDNS-GUEST-to-MEDIA'
+	option src 'guest'
+	option dest 'media'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-mDNS-MEDIA-to-GUEST'
+	option src 'media'
+	option dest 'guest'
+	option proto 'udp'
+	option src_port '5353'
+	option dest_port '5353'
+	option dest_ip '224.0.0.251'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-GUEST-to-MEDIA'
+	option src 'guest'
+	option dest 'media'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-SSDP-MEDIA-to-GUEST'
+	option src 'media'
+	option dest 'guest'
+	option proto 'udp'
+	option src_port '1900'
+	option dest_port '1900'
+	option dest_ip '239.255.255.250'
+	option family 'ipv4'
 	option target 'ACCEPT'
 
 ## SSDP / UPnP discovery — Philips Hue bridge discovery rides this
@@ -1023,6 +1257,24 @@ config rule
 	option target 'DROP'
 
 config rule
+	option name 'Drop-MEDIA-to-PRIVATE'
+	option src 'media'
+	option dest 'private'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-MEDIA-to-IOT'
+	option src 'media'
+	option dest 'iot'
+	option target 'DROP'
+
+config rule
+	option name 'Drop-MEDIA-to-GUEST'
+	option src 'media'
+	option dest 'guest'
+	option target 'DROP'
+
+config rule
 	option name 'Drop-SVC-to-IOT'
 	option src 'svc'
 	option dest 'iot'
@@ -1053,6 +1305,12 @@ config rule
 config rule
 	option name 'Allow-IOT-to-WIREGUARD'
 	option src 'iot'
+	option dest 'wireguard'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-MEDIA-to-WIREGUARD'
+	option src 'media'
 	option dest 'wireguard'
 	option target 'ACCEPT'
 

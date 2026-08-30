@@ -83,6 +83,17 @@ config device
 
 ## [CHANGED] declared explicitly. Previously implicit, which meant its
 ## existence depended on netifd inferring it.
+## MEDIA — wireless-only, like guest. Lives on the ath11k 2.4 GHz radio, which
+## has been idle since private/guest moved to 5 GHz only. 2x2 at 40 MHz is
+## ~286 Mbit/s, which is ample for two TVs and far better than the 1x1 ath10k.
+config device
+	option name 'br-media'
+	option type 'bridge'
+	option mtu '1500'
+	option macaddr '52:AA:09:87:24:C7'
+	option igmp_snooping '1'
+	option bridge_empty '1'
+
 config device
 	option name 'br-guest'
 	option type 'bridge'
@@ -135,7 +146,7 @@ config interface 'wan6'
 ##############################################################################
 ## [CHANGED] ip6hint added to all four. Your /64s are currently assigned in
 ## netifd allocation order, which happens to give guest :0, iot :1,
-## private :2, svc :3. After a clean -n flash that order is NOT guaranteed.
+## private :2, svc :3, media :4. After a clean -n flash that order is NOT guaranteed.
 ## If it shuffles, all four IPv6 pbr rules point at the wrong zones and the
 ## DNS hijack's Pi-hole address stops being Pi-hole — silently, because v4
 ## keeps working. These four lines make it deterministic.
@@ -147,6 +158,16 @@ config interface 'guest'
 	option netmask '255.255.255.0'
 	option ip6assign '64'
 	option ip6hint '0'
+	option mtu '1500'
+	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
+
+config interface 'media'
+	option proto 'static'
+	option device 'br-media'
+	option ipaddr '192.168.34.1'
+	option netmask '255.255.255.0'
+	option ip6assign '64'
+	option ip6hint '4'
 	option mtu '1500'
 	list dns 'fdb6:747a:d337:3:ba27:ebff:fe6e:5aeb'
 
@@ -186,7 +207,7 @@ config interface 'svc'
 ## straight throughput win. Validate with `ping -M do -s 1392 <endpoint>` and
 ## watch for handshake failures — 15-wan.nft drops fragments.
 ##
-## PRIVATE -> wg0 | SVC + IOT -> wg1 | GUEST -> wg2
+## PRIVATE -> wg0 | SVC -> wg1 | GUEST -> wg2 | IOT -> wg3 | MEDIA -> wg4
 ##
 ## NO KEY MATERIAL IN THIS FILE. Interfaces are declared without private_key
 ## and carry no peers; they will fail to come up until inject-secrets.sh runs.
@@ -248,6 +269,18 @@ config interface 'wg3'
 	option peerdns '0'
 	option nohostroute '0'
 
+## wg4 — MEDIA. Separate tunnel rather than sharing wg3 with IOT: torrent and
+## appliance traffic in one failure domain means a P2P-related block takes the
+## thermostats with it. A fifth tunnel costs a few MB of RAM and one more
+## handshake, not throughput.
+config interface 'wg4'
+	option proto 'wireguard'
+	option mtu '1320'
+	option listen_port '31341'
+	option force_link '1'
+	option peerdns '0'
+	option nohostroute '0'
+
 config interface 'wg60'
 	option proto 'static'
 	option device '@wg0'
@@ -263,6 +296,10 @@ config interface 'wg62'
 config interface 'wg63'
 	option proto 'static'
 	option device '@wg3'
+
+config interface 'wg64'
+	option proto 'static'
+	option device '@wg4'
 
 ##############################################################################
 ## Default routes with metrics — RESTORED, I had dropped all 8 of these
@@ -326,6 +363,16 @@ config route6
 	option interface 'wg63'
 	option target '::/0'
 	option metric '500'
+
+config route
+	option interface 'wg4'
+	option target '0.0.0.0/0'
+	option metric '600'
+
+config route6
+	option interface 'wg64'
+	option target '::/0'
+	option metric '600'
 
 ##############################################################################
 ## NSS ingress shaping helper (present in the base builder image)

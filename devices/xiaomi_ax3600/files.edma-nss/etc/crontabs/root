@@ -1,0 +1,38 @@
+# /etc/crontabs/root
+#
+# Everything here ships commented. Uncomment a line, then:
+#   /etc/init.d/cron restart
+#
+# NOTE: /etc/crontabs is in the default sysupgrade keep.d, so anything you
+# enable here SURVIVES a flash — including anything you added in an emergency
+# and forgot about. Check this file after any incident.
+
+# ---------------------------------------------------------------------------
+# wg-failover — rotate a WireGuard peer when its handshake goes stale.
+#
+# ENABLE ONLY AFTER inject-secrets.sh has run and all five tunnels are
+# handshaking. Before that every tunnel looks stale, and the script would walk
+# the whole candidate list on each pass, thrashing interfaces for no reason.
+#
+# Verify first:
+#   wg show | grep -c 'latest handshake'      # expect 5
+#   ls /etc/wg-failover/*.peers               # expect wg0..wg4
+#
+# Then uncomment. Every 2 minutes; a switch is held for 90 s before the next
+# decision, so the effective floor on rotations is well above the interval.
+#*/2 * * * * /usr/libexec/wg-failover
+
+# Opportunistic mode: also move to the lowest-RTT endpoint when the current one
+# is healthy but not the best. Off by default — it trades a brief interruption
+# for latency you may not notice.
+#*/2 * * * * PREFER_BEST=1 /usr/libexec/wg-failover
+
+# ---------------------------------------------------------------------------
+# Proton port forwarding on MEDIA (wg4).
+#
+# Only needed if something on MEDIA actually LISTENS. Streaming and debrid are
+# outbound HTTP and need nothing; a torrent client seeding does.
+#
+# NAT-PMP mappings expire in 60 s, so this renews at 45 s intervals via a
+# self-scheduling loop rather than cron, which cannot go below a minute.
+#*/5 * * * * /usr/libexec/proton-portfwd --ensure
