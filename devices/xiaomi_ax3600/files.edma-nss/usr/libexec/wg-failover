@@ -31,7 +31,20 @@ set -u
 NAME=wg-failover
 PEERDIR=/etc/wg-failover
 STATEDIR=/var/run/wg-failover
-STALE=${STALE:-180}        # seconds without a handshake before rotating
+# 300, not 180. WireGuard's own REJECT_AFTER_TIME is 180 s — the point at
+# which it declares a session dead and forces a rekey — so a threshold of 180
+# sits exactly on the boundary and fires while a healthy tunnel is mid-rekey.
+# 300 clears it with margin.
+STALE=${STALE:-300}
+# Consecutive stale observations required before rotating. This, not the cron
+# interval, is the anti-flap control: raising */2 to */3 only makes detection
+# slower without making it more certain, whereas requiring confirmation keeps
+# 2-minute detection and rotates only on a second opinion.
+STRIKES=${STRIKES:-2}
+# Seconds to hold after a switch before judging the new peer. A fresh peer
+# needs a keepalive-driven rekey to register a handshake, which takes longer
+# than the 90 s this used to allow.
+HOLD=${HOLD:-150}
 # Interfaces whose candidates MUST carry the p2p flag. Proton gates P2P by
 # server role, not by key attribute, so a NetShield-off key on a non-P2P server
 # still will not carry torrent traffic. Listing the interface here makes the
@@ -157,12 +170,15 @@ check() {
 	# Do not thrash: give a fresh switch time to complete a handshake before
 	# judging it. Two rotations a minute apart is a broken tunnel, not failover.
 	local switched=$(cat "$STATEDIR/$iface.switched" 2>/dev/null || echo 0)
-	if [ $((now - switched)) -lt 90 ]; then
+	if [ $((now - switched)) -lt "$HOLD" ]; then
 		log "$iface: switched $((now - switched))s ago, holding"
 		return 0
 	fi
 
+	local strikefile="$STATEDIR/$iface.strikes"
 	if [ "$age" -lt "$STALE" ]; then
+		# Healthy: clear any accumulated strikes.
+		rm -f "$strikefile"
 		# Healthy. Opportunistically move to a better endpoint only if the
 		# current one is not already the best AND we have not moved recently.
 		cur=$(uci -q get "network.@wireguard_${iface}[0].endpoint_host")
@@ -175,7 +191,18 @@ check() {
 		return 0
 	fi
 
-	log "$iface: no handshake for ${age}s, rotating"
+	# Stale. Count it, and only act once the count reaches STRIKES — a single
+	# late handshake is not a dead server.
+	local strikes=$(cat "$strikefile" 2>/dev/null || echo 0)
+	strikes=$((strikes + 1))
+	echo "$strikes" > "$strikefile"
+	if [ "$strikes" -lt "$STRIKES" ]; then
+		log "$iface: stale ${age}s, strike ${strikes}/${STRIKES}, waiting"
+		return 0
+	fi
+	rm -f "$strikefile"
+
+	log "$iface: no handshake for ${age}s after ${STRIKES} checks, rotating"
 	cur=$(uci -q get "network.@wireguard_${iface}[0].endpoint_host")
 
 	# Walk the ranked list, skipping the one that just failed.

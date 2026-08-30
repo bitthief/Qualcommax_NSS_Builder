@@ -18,8 +18,13 @@
 #   wg show | grep -c 'latest handshake'      # expect 5
 #   ls /etc/wg-failover/*.peers               # expect wg0..wg4
 #
-# Then uncomment. Every 2 minutes; a switch is held for 90 s before the next
-# decision, so the effective floor on rotations is well above the interval.
+# Then uncomment. Leave it at */2: the anti-flap control is the strike counter
+# inside the script, not this interval. It requires two consecutive stale
+# checks before rotating, so a lengthened interval only delays detection
+# without making it more certain. Tuning knobs, all overridable here:
+#   STALE=300    seconds without a handshake before a check counts as stale
+#   STRIKES=2    consecutive stale checks before rotating
+#   HOLD=150     seconds to leave a fresh peer alone before judging it
 #*/2 * * * * /usr/libexec/wg-failover
 
 # Opportunistic mode: also move to the lowest-RTT endpoint when the current one
