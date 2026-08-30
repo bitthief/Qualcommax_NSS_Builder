@@ -24,19 +24,21 @@
 ## and any deliberate direct query are not redirected into themselves.
 
 chain ntphijack {
-  ip  daddr { 192.168.32.1, 192.168.33.1, 192.168.37.1, 192.168.137.1 } return comment "!fw4: NTPHIJACK - already the gateway"
-  ip6 daddr { fdb6:747a:d337:0::1, fdb6:747a:d337:1::1, fdb6:747a:d337:2::1, fdb6:747a:d337:3::1 } return comment "!fw4: NTPHIJACK - already the gateway"
+  ip  daddr { 192.168.32.1, 192.168.33.1, 192.168.34.1, 192.168.37.1, 192.168.137.1 } return comment "!fw4: NTPHIJACK - already the gateway"
+  ip6 daddr { fdb6:747a:d337:0::1, fdb6:747a:d337:1::1, fdb6:747a:d337:2::1, fdb6:747a:d337:3::1, fdb6:747a:d337:4::1 } return comment "!fw4: NTPHIJACK - already the gateway"
 
   meta iifname "br-svc"     dnat ip to 192.168.137.1 comment "!fw4: NTPHIJACK"
   meta iifname "br-guest"   dnat ip to 192.168.33.1  comment "!fw4: NTPHIJACK"
+  meta iifname "br-media"   dnat ip to 192.168.34.1  comment "!fw4: NTPHIJACK"
   meta iifname "br-private" dnat ip to 192.168.37.1  comment "!fw4: NTPHIJACK"
 
   meta iifname "br-svc"     dnat ip6 to fdb6:747a:d337:3::1 comment "!fw4: NTPHIJACK"
   meta iifname "br-guest"   dnat ip6 to fdb6:747a:d337:0::1 comment "!fw4: NTPHIJACK"
+  meta iifname "br-media"   dnat ip6 to fdb6:747a:d337:4::1 comment "!fw4: NTPHIJACK"
   meta iifname "br-private" dnat ip6 to fdb6:747a:d337:2::1 comment "!fw4: NTPHIJACK"
 }
 
 chain dstnat {
   type nat hook prerouting priority -100; policy accept;
-  iifname { "br-guest", "br-private", "br-svc" } udp dport 123 jump ntphijack comment "!fw4: NTPHIJACK"
+  iifname { "br-guest", "br-private", "br-svc", "br-media" } udp dport 123 jump ntphijack comment "!fw4: NTPHIJACK"
 }

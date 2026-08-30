@@ -33,6 +33,6 @@ chain dnshijack {
 
 chain dstnat {
   type nat hook prerouting priority -100; policy accept;
-  iifname { "br-iot", "br-guest", "br-private", "br-svc" } udp dport { 53, 853 } jump dnshijack comment "!fw4: DNSHIJACK"
-  iifname { "br-iot", "br-guest", "br-private", "br-svc" } tcp dport { 53, 853 } jump dnshijack comment "!fw4: DNSHIJACK"
+  iifname { "br-iot", "br-guest", "br-private", "br-svc", "br-media" } udp dport { 53, 853 } jump dnshijack comment "!fw4: DNSHIJACK"
+  iifname { "br-iot", "br-guest", "br-private", "br-svc", "br-media" } tcp dport { 53, 853 } jump dnshijack comment "!fw4: DNSHIJACK"
 }

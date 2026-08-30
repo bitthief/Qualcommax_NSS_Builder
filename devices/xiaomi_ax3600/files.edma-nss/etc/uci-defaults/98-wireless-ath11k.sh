@@ -89,6 +89,7 @@ TXPOWER_5G='30'
 ## there breaks — existing 5 GHz clients keep working.
 SSID_GUEST='TP-Link_0337D'
 SSID_PRIVATE='TP-Link_1337D'
+SSID_MEDIA='TP-Link_M3D1A'
 
 # Generate only if absent — the ath10k script may have run first.
 [ -s /etc/config/wireless ] || wifi config
@@ -195,7 +196,7 @@ if [ -n "$R5G" ]; then
 		set wireless.${R5G}.channel='${CH_5G}'
 		set wireless.${R5G}.htmode='${HTMODE_5G}'
 		set wireless.${R5G}.txpower='${TXPOWER_5G}'
-		set wireless.${R5G}.distance='15'
+		set wireless.${R5G}.distance='0'
 		set wireless.${R5G}.beacon_int='100'
 		set wireless.${R5G}.cell_density='0'
 		set wireless.${R5G}.he_bss_color='16'
@@ -253,10 +254,10 @@ if [ -n "$R24" ]; then
 		## Channel 11 with HE40 -> HT40- -> occupies 7-11, centre channel 9 (2452),
 		## spanning 2432-2472. Clear of the IoT radio's 20 MHz on channel 1.
 		## US regdom removed 12-13, so HT40+ is not available up here anyway.
-		set wireless.${R24}.channel='11'
+		set wireless.${R24}.channel='9'
 		set wireless.${R24}.htmode='HE40'
 		set wireless.${R24}.txpower='20'
-		set wireless.${R24}.distance='15'
+		set wireless.${R24}.distance='0'
 		set wireless.${R24}.beacon_int='100'
 		set wireless.${R24}.cell_density='0'
 		set wireless.${R24}.he_bss_color='16'
@@ -276,25 +277,25 @@ if [ -n "$R24" ]; then
 		set wireless.${R24}.noscan='1'
 		delete wireless.${R24}.acs_chan_bias
 EOF
-		## NO guest/private VAPs on 2.4 GHz — deliberately.
+		## No guest/private VAPs here — with one SSID across both bands clients
+		## pick by RSSI, 2.4 GHz wins at close range, and usteer can only ask
+		## them to move (the logs are full of BSS-TM-RESP status_code=7). That
+		## argument is not winnable by steering, only by removing the choice.
+		## Private and guest are 5 GHz only.
 		##
-		## With one SSID across both bands, clients pick by RSSI and 2.4 GHz
-		## wins at close range (-41 dBm vs -58). usteer can only ASK them to
-		## move: assoc_steering refuses the first association, after which the
-		## only lever is a BSS Transition Management request — and the logs show
-		## clients declining it (BSS-TM-RESP status_code=7). That argument is
-		## not winnable by steering, only by removing the choice.
+		## THE RISK IS GUEST: a visitor with an older phone now has no network.
+		## If that bites, re-add a guest_24 VAP or hand out the IoT SSID.
 		##
-		## So private and guest are 5 GHz only.
-		##
-		## THE RISK IS GUEST: a visitor with an older phone, or any 2.4-only
-		## device someone brings, now has no network. If that bites, re-add a
-		## guest_24 VAP here or hand out the IoT SSID.
-		##
-		## This radio is now free for MEDIA — 2x2 at 40 MHz on channel 11, much
-		## better for two TVs than the 1x1 ath10k. That needs a bridge, subnet,
-		## firewall zone and pbr policy, so it is a separate change; the radio
-		## stays configured and idle until then.
+		## This radio carries MEDIA instead: 2x2 at 40 MHz is ~286 Mbit/s,
+		## against ~70 on the 1x1 ath10k. Right home for two TVs.
+		uci -q batch <<-EOF
+			set wireless.media_24='wifi-iface'
+			set wireless.media_24.device='${R24}'
+			set wireless.media_24.network='media'
+			set wireless.media_24.ssid='${SSID_MEDIA}'
+			set wireless.media_24.isolate='0'
+		EOF
+		common_vap media_24
 fi
 
 uci commit wireless
