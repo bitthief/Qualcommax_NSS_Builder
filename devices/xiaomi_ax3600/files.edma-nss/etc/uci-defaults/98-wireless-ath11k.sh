@@ -294,8 +294,29 @@ EOF
 			set wireless.media_24.network='media'
 			set wireless.media_24.ssid='${SSID_MEDIA}'
 			set wireless.media_24.isolate='0'
+			set wireless.media_24.mode='ap'
+			## sae-mixed, NOT sae. This VAP carries TVs, and cheap TV firmware
+			## routinely cannot do WPA3 at all — SAE authentication times out
+			## and the set-top box reports whatever string it has to hand.
+			##
+			## Deliberately WITHOUT gcmp256 and sae_ext_key, which the 5 GHz
+			## VAPs carry: GCMP-256 and extended-key SAE narrow the cipher and
+			## AKM set to what only recent clients negotiate.
+			##
+			## And WITHOUT transition_disable. That flag tells a client to stop
+			## accepting WPA2 for this SSID PERMANENTLY, and clients remember
+			## it — so setting it once can lock a device out even after you
+			## loosen the encryption again. If a TV has already seen it, forget
+			## the network on the TV before retrying.
+			##
+			## The zone is what protects you here, not the cipher suite: media
+			## has input DROP, no path to wan, no forwarding to private, iot or
+			## guest, and its own tunnel.
+			set wireless.media_24.encryption='sae-mixed'
+			set wireless.media_24.ieee80211w='1'
+			set wireless.media_24.bss_transition='1'
+			set wireless.media_24.multicast_to_unicast_all='0'
 		EOF
-		common_vap media_24
 fi
 
 uci commit wireless
