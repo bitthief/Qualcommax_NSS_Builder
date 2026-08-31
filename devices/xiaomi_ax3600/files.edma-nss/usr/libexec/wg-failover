@@ -5,6 +5,12 @@
 # Install:
 #   /usr/libexec/wg-failover              this file, 0755
 #   /etc/wg-failover/<iface>.peers        candidate list per tunnel
+#                                         wg0..wg4 and/or awg0..awg4; the file
+#                                         name selects the tool and uci section
+#                                         type, so the same candidates work for
+#                                         either family — symlink rather than
+#                                         duplicate:
+#                                           ln -s wg0.peers awg0.peers
 #   cron:  */2 * * * * /usr/libexec/wg-failover
 #
 # WHY NOT THE OBVIOUS ALTERNATIVES
@@ -63,6 +69,14 @@ trap 'lock -u "$LOCK"' EXIT
 # log line on stdout would be parsed as a candidate. The old `[ -t 1 ]` guard
 # happened to prevent that, but only by accident of not having a terminal.
 log() { logger -t "$NAME" "$*"; echo "$*" >&2; }
+
+# wg and awg are separate tools with separate uci section types. Everything
+# else about failover is identical, so derive both from the interface name
+# rather than duplicating the script.
+#   wg0  -> wg  / wireguard_wg0
+#   awg0 -> awg / amneziawg_awg0
+tool_for()    { case "$1" in awg*) echo awg ;; *) echo wg ;; esac; }
+sectype_for() { case "$1" in awg*) echo "amneziawg_$1" ;; *) echo "wireguard_$1" ;; esac; }
 
 ##############################################################################
 # rank <iface> — order candidates by RTT, cache the result
@@ -130,8 +144,9 @@ rank() {
 set_peer() {
 	local iface="$1" pub="$2" host="$3" port="$4" desc="$5"
 	local sec
-	while uci -q delete "network.@wireguard_${iface}[0]" 2>/dev/null; do :; done
-	sec="$(uci add network "wireguard_${iface}")"
+	local st; st="$(sectype_for "$iface")"
+	while uci -q delete "network.@${st}[0]" 2>/dev/null; do :; done
+	sec="$(uci add network "$st")"
 	uci -q batch <<-EOF
 		set network.${sec}.public_key='${pub}'
 		set network.${sec}.endpoint_host='${host}'
@@ -163,7 +178,7 @@ check() {
 	local now hs age cur
 	now=$(date +%s)
 	# Newest handshake across peers. There is normally only one.
-	hs=$(wg show "$iface" latest-handshakes 2>/dev/null | awk '{if($2>m)m=$2}END{print m+0}')
+	hs=$($(tool_for "$iface") show "$iface" latest-handshakes 2>/dev/null | awk '{if($2>m)m=$2}END{print m+0}')
 	age=$((now - hs))
 	[ "$hs" -eq 0 ] && age=99999
 
@@ -181,7 +196,7 @@ check() {
 		rm -f "$strikefile"
 		# Healthy. Opportunistically move to a better endpoint only if the
 		# current one is not already the best AND we have not moved recently.
-		cur=$(uci -q get "network.@wireguard_${iface}[0].endpoint_host")
+		cur=$(uci -q get "network.@$(sectype_for "$iface")[0].endpoint_host")
 		local best_host=$(head -1 "$ranked" | cut -d'|' -f4)
 		if [ -n "${PREFER_BEST:-}" ] && [ "$cur" != "$best_host" ]; then
 			log "$iface: healthy but $cur is not the best; PREFER_BEST set, moving"
@@ -203,7 +218,7 @@ check() {
 	rm -f "$strikefile"
 
 	log "$iface: no handshake for ${age}s after ${STRIKES} checks, rotating"
-	cur=$(uci -q get "network.@wireguard_${iface}[0].endpoint_host")
+	cur=$(uci -q get "network.@$(sectype_for "$iface")[0].endpoint_host")
 
 	# Walk the ranked list, skipping the one that just failed.
 	local picked=0

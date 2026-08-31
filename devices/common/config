@@ -173,6 +173,32 @@ CONFIG_PACKAGE_luci-proto-wireguard=y
 CONFIG_PACKAGE_rpcd-mod-wireguard=y
 
 ## ======================================================================
+## AmneziaWG — obfuscated WireGuard, present but not in use by default
+## ======================================================================
+# Needs an extra feed; see builder-feeds-additions.txt.
+#
+# READ THIS BEFORE ENABLING ANY OF THE PARAMETERS. AmneziaWG is NOT wire-
+# compatible with WireGuard except for one subset:
+#
+#   Jc / Jmin / Jmax   junk packets sent BEFORE the handshake. A vanilla
+#                      server discards them as malformed and the handshake
+#                      proceeds. COMPATIBLE with Proton.
+#   S1 / S2            junk prepended INSIDE the handshake init/response.
+#                      Changes a packet the server must parse. BREAKS Proton.
+#   H1..H4             replaces WireGuard's message type bytes. BREAKS Proton.
+#
+# So against any vanilla provider you get the junk packets and nothing else.
+# That defeats DPI which fingerprints a session by its FIRST packet; it does
+# nothing against DPI which fingerprints the handshake itself, since that
+# packet still goes out unchanged, just later in the flow.
+#
+# Shipped so switching is a config change rather than a rebuild-and-reflash
+# while your connectivity is already the thing that is broken.
+CONFIG_PACKAGE_kmod-amneziawg=y
+CONFIG_PACKAGE_amneziawg-tools=y
+CONFIG_PACKAGE_luci-proto-amneziawg=y
+
+## ======================================================================
 ## Policy routing — replaces the mwan3 member matrix
 ## ======================================================================
 CONFIG_PACKAGE_pbr=y
