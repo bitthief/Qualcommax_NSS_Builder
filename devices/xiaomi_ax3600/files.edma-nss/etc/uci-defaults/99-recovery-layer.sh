@@ -94,19 +94,20 @@ add_recovery_ap() {
 
 	# PCI-attached = the ath10k IoT radio. The recovery AP never depends on it:
 	# it is the radio most likely to be the reason you need recovery.
+	## DELIBERATELY DOES NOT SET A CHANNEL.
+	##
+	## It used to force 5 GHz to 36 and 2.4 GHz to 1 so the recovery AP would
+	## come up without waiting out a DFS CAC. That clobbered the production
+	## channels permanently — 129 became 36 and 9 became 1, on every boot,
+	## after 98-wireless-ath11k.sh had just set them correctly.
+	##
+	## The recovery AP now shares whatever channel the radio is already on. On
+	## a DFS channel that means ~60 s of no beacon at boot before it appears,
+	## which is the correct trade: a slow recovery AP beats a production radio
+	## silently moved to a congested channel.
 	local path; config_get path "$dev" path
 	case "$path" in *pci*) echo "skipping PCI radio $dev for recovery"; return ;; esac
 
-	case "$band" in
-		2g) uci -q set "wireless.${dev}.channel=1"
-		    uci -q set "wireless.${dev}.htmode=HT20" ;;
-		# 36 is non-DFS: a DFS channel means 60s CAC before it beacons,
-		# which looks exactly like a failed flash.
-		5g) uci -q set "wireless.${dev}.channel=36"
-		    uci -q set "wireless.${dev}.htmode=HT20" ;;
-		6g) uci -q set "wireless.${dev}.disabled=1"; return ;;
-		*)  uci -q set "wireless.${dev}.htmode=HT20" ;;
-	esac
 
 	uci -q batch <<-EOF
 		set wireless.rec_${dev}='wifi-iface'

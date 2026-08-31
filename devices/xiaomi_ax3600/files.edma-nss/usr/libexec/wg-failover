@@ -61,7 +61,10 @@ PROBE_EVERY=${PROBE_EVERY:-3600}   # re-rank candidates by latency this often
 LOCK=/var/lock/$NAME
 
 mkdir -p "$STATEDIR"
-[ -e "$LOCK" ] && exit 0
+# `lock -n` alone is the mutual exclusion. The `[ -e "$LOCK" ] && exit 0` that
+# used to be here made a stale lock file PERMANENT: kill the script, or have
+# the EXIT trap not fire, and every subsequent run exited immediately —
+# including manual ones. That is why it stopped running after the first switch.
 lock -n "$LOCK" || exit 0
 trap 'lock -u "$LOCK"' EXIT
 
@@ -145,6 +148,9 @@ set_peer() {
 	local iface="$1" pub="$2" host="$3" port="$4" desc="$5"
 	local sec
 	local st; st="$(sectype_for "$iface")"
+	PREV_PUB="$(uci -q get "network.@${st}[0].public_key")"
+	PREV_HOST="$(uci -q get "network.@${st}[0].endpoint_host")"
+	PREV_PORT="$(uci -q get "network.@${st}[0].endpoint_port")"
 	while uci -q delete "network.@${st}[0]" 2>/dev/null; do :; done
 	sec="$(uci add network "$st")"
 	uci -q batch <<-EOF
@@ -159,7 +165,48 @@ set_peer() {
 	EOF
 	uci commit network
 	ifup "$iface"
-	log "$iface: switched to $desc ($host:$port)"
+
+	# VERIFY, then keep or roll back. Rewriting the peer and calling ifup is
+	# not enough on its own: netifd re-derives the endpoint host route on the
+	# way up, and if that lands wrong the tunnel has a default route, no
+	# handshake and no path back. Which is exactly what happened — a switch
+	# that "succeeded" left the router with no connectivity until a reboot.
+	#
+	# So a switch is now provisional until a handshake proves it.
+	local waited=0 hs2=0
+	while [ "$waited" -lt 45 ]; do
+		sleep 5; waited=$((waited + 5))
+		hs2=$($(tool_for "$iface") show "$iface" latest-handshakes 2>/dev/null \
+			| awk '{if($2>m)m=$2}END{print m+0}')
+		[ "$hs2" -gt 0 ] && [ $(( $(date +%s) - hs2 )) -lt 60 ] && break
+		hs2=0
+	done
+
+	if [ "$hs2" -eq 0 ]; then
+		log "$iface: $desc did not handshake in ${waited}s — rolling back"
+		if [ -n "${PREV_PUB:-}" ]; then
+			while uci -q delete "network.@${st}[0]" 2>/dev/null; do :; done
+			sec="$(uci add network "$st")"
+			uci -q batch <<-EOF
+				set network.${sec}.public_key='${PREV_PUB}'
+				set network.${sec}.endpoint_host='${PREV_HOST}'
+				set network.${sec}.endpoint_port='${PREV_PORT}'
+				set network.${sec}.persistent_keepalive='25'
+				set network.${sec}.route_allowed_ips='0'
+				add_list network.${sec}.allowed_ips='0.0.0.0/0'
+				add_list network.${sec}.allowed_ips='::/0'
+			EOF
+			uci commit network
+			ifup "$iface"
+			log "$iface: rolled back to ${PREV_HOST}"
+		else
+			log "$iface: no previous peer recorded, leaving as-is"
+		fi
+		echo "$(date +%s)" > "$STATEDIR/$iface.switched"
+		return 1
+	fi
+
+	log "$iface: switched to $desc ($host:$port), handshake confirmed"
 	echo "$(date +%s)" > "$STATEDIR/$iface.switched"
 }
 
@@ -169,7 +216,13 @@ set_peer() {
 check() {
 	local iface="$1" src="$PEERDIR/$iface.peers"
 	[ -s "$src" ] || return 0
-	ip link show "$iface" >/dev/null 2>&1 || { log "$iface: no such interface"; return 0; }
+	# A .peers file for the family that is not currently live is normal — both
+	# sets ship and inject-secrets.sh enables one. Say so once at debug level
+	# rather than logging five "no such interface" lines every two minutes.
+	if ! ip link show "$iface" >/dev/null 2>&1; then
+		[ -n "${VERBOSE:-}" ] && log "$iface: not present (inactive family), skipping"
+		return 0
+	fi
 
 	rank "$iface"
 	local ranked="$STATEDIR/$iface.ranked"

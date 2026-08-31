@@ -211,8 +211,12 @@ CONFIG_PACKAGE_amneziawg-tools=y
 #   ERROR: trying to overwrite usr/share/luci/menu.d/luci-proto-amneziawg.json
 #          owned by luci-app-amneziawg
 # Pin the old name =n so a stale feed index cannot reintroduce it.
-CONFIG_PACKAGE_luci-app-amneziawg=y
-CONFIG_PACKAGE_luci-proto-amneziawg=n
+# The 2Grey feed ships BOTH luci-app-amneziawg and luci-proto-amneziawg, and
+# they install the same files — selecting both is a file-ownership conflict at
+# install time. luci-proto-* is the current one; luci-app-* is the legacy name
+# kept for compatibility. Pin the legacy one =n so a stale index cannot pull it.
+CONFIG_PACKAGE_luci-proto-amneziawg=y
+CONFIG_PACKAGE_luci-app-amneziawg=n
 
 ## ======================================================================
 ## Policy routing — replaces the mwan3 member matrix

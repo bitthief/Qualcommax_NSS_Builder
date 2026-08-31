@@ -40,7 +40,7 @@ APPLY=0
 TARGET_CANDIDATES="${TARGET_CANDIDATES:-9.9.9.9 8.8.8.8 208.67.222.222 1.1.1.1}"
 TARGET_HOST="${TARGET_HOST:-}"
 DL_URL="${DL_URL:-http://speedtest.tele2.net/100MB.zip}"
-SAMPLE=20                                   # seconds of load per candidate
+SAMPLE=20                                   # probes (and seconds) of load per candidate
 TOLERANCE_MS="${TOLERANCE_MS:-10}"          # allowed RTT rise over baseline
 IFACE="${IFACE:-wan}"
 
@@ -64,17 +64,36 @@ say() { printf '%s\n' "$*" >&2; }
 # p95 rather than mean: bufferbloat shows up as a tail, and a mean over a
 # 20-second window hides a queue that is full half the time.
 rtt_p95() {
-	local secs="$1"
-	ping -i 0.2 -c $((secs * 5)) -W 2 "$TARGET_HOST" 2>/dev/null \
-		| sed -n 's/.*time=\([0-9.]*\) ms/\1/p' \
+	local secs="$1" n
+	# `ping -i 0.2` is why every baseline came back 9999. BusyBox ping takes an
+	# INTEGER interval; a fractional one makes it error out, print nothing, and
+	# the sed below yields no samples. One probe per second is plenty.
+	n="$secs"
+	ping -c "$n" -W 2 "$TARGET_HOST" 2>/dev/null \
+		| sed -n 's/.*time=\([0-9.]*\) ms.*/\1/p' \
 		| sort -n \
-		| awk '{v[NR]=$1} END {if (NR==0) {print "9999"; exit} print v[int(NR*0.95)+0 == 0 ? 1 : int(NR*0.95)]}'
+		| awk '{v[NR]=$1}
+		       END {
+		         if (NR == 0) { print "9999"; exit }
+		         i = int(NR * 0.95); if (i < 1) i = 1;
+		         print v[i]
+		       }'
 }
 
 baseline() {
 	say "  measuring idle baseline..."
-	local b; b=$(rtt_p95 8)
+	local b; b=$(rtt_p95 10)
 	say "  baseline p95 RTT: ${b} ms"
+	# A 9999 baseline means the probe produced no samples at all. Carrying on
+	# would make every candidate "pass" — rise = 9999-9999 = 0 — and the
+	# bisection would walk straight to the ceiling and report a rate several
+	# times the line speed. That is exactly the 646816/323407 result.
+	if awk -v b="$b" 'BEGIN{exit !(b >= 9999)}'; then
+		say "  !! no RTT samples from ${TARGET_HOST}."
+		say "     check: ping -c3 ${TARGET_HOST}"
+		say "     then re-run with TARGET_HOST=<something reachable>"
+		exit 1
+	fi
 	echo "$b"
 }
 
