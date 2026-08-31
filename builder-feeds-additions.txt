@@ -1,10 +1,15 @@
-# AmneziaWG feed. Append to your FEEDS variable in build-local.sh, or add to
+# AmneziaWG feed: 2Grey/awg-openwrt, actively maintained, tracks AmneziaWG
+# v1.5. NOT amnezia-vpn/amneziawg-openwrt — that one is stale and fails to
+# build, and it names the LuCI package luci-proto-amneziawg where this one uses
+# luci-app-amneziawg. Selecting both is a file-ownership conflict at install.
+#
+# Append to your FEEDS variable in build-local.sh, or add to
 # the builder's feeds list:
 #
 #   FEEDS="src-git nss https://github.com/JuliusBairaktaris/nss-packages.git;edma-nss
 #          src-git awg https://github.com/2Grey/awg-openwrt.git"
 #
-# Provides kmod-amneziawg, amneziawg-tools and luci-proto-amneziawg, all three
+# Provides kmod-amneziawg, amneziawg-tools and luci-app-amneziawg, all three
 # pinned in devices/common/config.
 #
 # The kmod builds out of tree against the running kernel, so it is one more

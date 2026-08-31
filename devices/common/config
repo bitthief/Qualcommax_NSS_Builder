@@ -175,7 +175,15 @@ CONFIG_PACKAGE_rpcd-mod-wireguard=y
 ## ======================================================================
 ## AmneziaWG — obfuscated WireGuard, present but not in use by default
 ## ======================================================================
-# Needs an extra feed; see builder-feeds-additions.txt.
+# Needs an extra feed; see builder-feeds-additions.txt. The feed is
+# 2Grey/awg-openwrt, which is actively maintained and tracks AmneziaWG v1.5 —
+# the amnezia-vpn/amneziawg-openwrt one is stale and fails to build.
+#
+# The newer feed exposes more parameters (awg_s3/s4, awg_i1..i5,
+# awg_header_protection_key, rekey and handshake timers) but the UCI schema is
+# otherwise identical: same proto name, same amneziawg_<iface> peer sections,
+# same awg_jc/jmin/jmax/s1/s2/h1..h4. Unset means stock behaviour, so the
+# vanilla-compatible subset in /etc/config/network is unaffected.
 #
 # READ THIS BEFORE ENABLING ANY OF THE PARAMETERS. AmneziaWG is NOT wire-
 # compatible with WireGuard except for one subset:
@@ -196,8 +204,15 @@ CONFIG_PACKAGE_rpcd-mod-wireguard=y
 # while your connectivity is already the thing that is broken.
 CONFIG_PACKAGE_kmod-amneziawg=y
 CONFIG_PACKAGE_amneziawg-tools=y
+# luci-app-amneziawg, NOT luci-proto-amneziawg. The amnezia-vpn feed called it
+# luci-proto-*; the 2Grey feed calls it luci-app-*. They install the SAME files
+# (protocol/amneziawg.js, the rpcd acl and ucode, the menu entry), so selecting
+# both gives apk a file-ownership conflict at install time:
+#   ERROR: trying to overwrite usr/share/luci/menu.d/luci-proto-amneziawg.json
+#          owned by luci-app-amneziawg
+# Pin the old name =n so a stale feed index cannot reintroduce it.
 CONFIG_PACKAGE_luci-app-amneziawg=y
-CONFIG_PACKAGE_luci-proto-amneziawg=y
+CONFIG_PACKAGE_luci-proto-amneziawg=n
 
 ## ======================================================================
 ## Policy routing — replaces the mwan3 member matrix
