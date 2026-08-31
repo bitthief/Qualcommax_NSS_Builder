@@ -29,7 +29,10 @@
 
 # Opportunistic mode: also move to the lowest-RTT endpoint when the current one
 # is healthy but not the best. Off by default — it trades a brief interruption
-# for latency you may not notice.
+# for latency you may not notice, and it is the mode that exercises the
+# rollback path hardest. Safe to enable now that a candidate which fails to
+# handshake is penalised for PENALTY_TTL (2h) rather than being re-picked from
+# the cached ranking every HOLD seconds.
 #*/2 * * * * PREFER_BEST=1 /usr/libexec/wg-failover
 
 # ---------------------------------------------------------------------------
