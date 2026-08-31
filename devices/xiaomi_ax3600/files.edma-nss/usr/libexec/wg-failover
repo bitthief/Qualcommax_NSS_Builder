@@ -51,6 +51,12 @@ STRIKES=${STRIKES:-2}
 # needs a keepalive-driven rekey to register a handshake, which takes longer
 # than the 90 s this used to allow.
 HOLD=${HOLD:-150}
+# How long a candidate that failed to handshake is skipped for. Without this,
+# rollback and PREFER_BEST fight each other forever: the rolled-back candidate
+# is still top of the cached ranking, so the next run picks it, it fails again,
+# rolls back again, every HOLD seconds until something else changes. A failure
+# has to be remembered or the ranking is not evidence of anything.
+PENALTY_TTL=${PENALTY_TTL:-7200}
 # Interfaces whose candidates MUST carry the p2p flag. Proton gates P2P by
 # server role, not by key attribute, so a NetShield-off key on a non-P2P server
 # still will not carry torrent traffic. Listing the interface here makes the
@@ -100,12 +106,26 @@ rank() {
 
 	log "$iface: ranking candidates by RTT"
 	local need_p2p=0
+
+	# Expire old penalties first, so a candidate that failed once during an
+	# outage is not written off permanently.
+	local pf="$STATEDIR/$iface.penalty" nowp
+	nowp=$(date +%s)
+	if [ -s "$pf" ]; then
+		awk -v n="$nowp" -v ttl="$PENALTY_TTL" '$2 + ttl > n' "$pf" > "$pf.tmp" 2>/dev/null
+		mv "$pf.tmp" "$pf"
+	fi
 	case " $REQUIRE_P2P " in *" $iface "*) need_p2p=1 ;; esac
 
 	: > "$out.tmp"
 	while IFS='|' read -r pub host port label load flags; do
 		case "${pub:-}" in ''|\#*) continue ;; esac
 		[ -n "$host" ] || continue
+
+		if [ -s "$pf" ] && awk -v h="$host" '$1 == h {found=1} END {exit !found}' "$pf"; then
+			log "$iface: skipping ${label:-$host} — failed to handshake recently"
+			continue
+		fi
 
 		if [ "$need_p2p" = "1" ]; then
 			case ",${flags:-}," in
@@ -202,6 +222,9 @@ set_peer() {
 		else
 			log "$iface: no previous peer recorded, leaving as-is"
 		fi
+		# Remember it. Endpoint plus timestamp, one per line, so rank() can
+		# skip it until PENALTY_TTL expires.
+		echo "$host $(date +%s)" >> "$STATEDIR/$iface.penalty"
 		echo "$(date +%s)" > "$STATEDIR/$iface.switched"
 		return 1
 	fi
@@ -253,6 +276,10 @@ check() {
 		local best_host=$(head -1 "$ranked" | cut -d'|' -f4)
 		if [ -n "${PREFER_BEST:-}" ] && [ "$cur" != "$best_host" ]; then
 			log "$iface: healthy but $cur is not the best; PREFER_BEST set, moving"
+			# Drop the cached ranking so the next pass re-probes with the
+			# penalty list applied, rather than handing back the same
+			# candidate that just failed.
+			rm -f "$STATEDIR/$iface.ranked.at"
 			IFS='|' read -r _ _ pub host port desc _ < "$ranked"
 			set_peer "$iface" "$pub" "$host" "$port" "$desc"
 		fi
