@@ -375,6 +375,182 @@ config route6
 	option metric '600'
 
 ##############################################################################
+## AmneziaWG mirrors — awg0..awg4
+##############################################################################
+## One awg interface per wg interface, same key, same address, same peers.
+## Exactly ONE SET IS LIVE AT A TIME: inject-secrets.sh populates whichever
+## TUNNEL_PROTO selects and disables the other. Running both would mean two
+## sessions per Proton key, which is not something to discover at 2am.
+##
+## PARAMETERS — the vanilla-compatible subset only:
+##   awg_jc 4, awg_jmin 40, awg_jmax 70   junk packets before the handshake
+##   awg_s1 0, awg_s2 0                   NO handshake padding; breaks Proton
+##   awg_h1..h4 = 1,2,3,4                 stock message types; anything else
+##                                        breaks Proton
+## Changing s1/s2/h1-h4 away from these values requires a server that also
+## speaks AmneziaWG. Proton does not.
+
+config interface 'awg0'
+	option proto 'amneziawg'
+	option mtu '1320'
+	option listen_port '31337'
+	option force_link '1'
+	option peerdns '0'
+	option nohostroute '0'
+	option disabled '1'
+	option awg_jc '4'
+	option awg_jmin '40'
+	option awg_jmax '70'
+	option awg_s1 '0'
+	option awg_s2 '0'
+	option awg_h1 '1'
+	option awg_h2 '2'
+	option awg_h3 '3'
+	option awg_h4 '4'
+
+config interface 'awg1'
+	option proto 'amneziawg'
+	option mtu '1320'
+	option listen_port '31338'
+	option force_link '1'
+	option peerdns '0'
+	option nohostroute '0'
+	option disabled '1'
+	option awg_jc '4'
+	option awg_jmin '40'
+	option awg_jmax '70'
+	option awg_s1 '0'
+	option awg_s2 '0'
+	option awg_h1 '1'
+	option awg_h2 '2'
+	option awg_h3 '3'
+	option awg_h4 '4'
+
+config interface 'awg2'
+	option proto 'amneziawg'
+	option mtu '1320'
+	option listen_port '31339'
+	option force_link '1'
+	option peerdns '0'
+	option nohostroute '0'
+	option disabled '1'
+	option awg_jc '4'
+	option awg_jmin '40'
+	option awg_jmax '70'
+	option awg_s1 '0'
+	option awg_s2 '0'
+	option awg_h1 '1'
+	option awg_h2 '2'
+	option awg_h3 '3'
+	option awg_h4 '4'
+
+config interface 'awg3'
+	option proto 'amneziawg'
+	option mtu '1320'
+	option listen_port '31340'
+	option force_link '1'
+	option peerdns '0'
+	option nohostroute '0'
+	option disabled '1'
+	option awg_jc '4'
+	option awg_jmin '40'
+	option awg_jmax '70'
+	option awg_s1 '0'
+	option awg_s2 '0'
+	option awg_h1 '1'
+	option awg_h2 '2'
+	option awg_h3 '3'
+	option awg_h4 '4'
+
+config interface 'awg4'
+	option proto 'amneziawg'
+	option mtu '1320'
+	option listen_port '31341'
+	option force_link '1'
+	option peerdns '0'
+	option nohostroute '0'
+	option disabled '1'
+	option awg_jc '4'
+	option awg_jmin '40'
+	option awg_jmax '70'
+	option awg_s1 '0'
+	option awg_s2 '0'
+	option awg_h1 '1'
+	option awg_h2 '2'
+	option awg_h3 '3'
+	option awg_h4 '4'
+
+config interface 'awg60'
+	option proto 'static'
+	option device '@awg0'
+
+config interface 'awg61'
+	option proto 'static'
+	option device '@awg1'
+
+config interface 'awg62'
+	option proto 'static'
+	option device '@awg2'
+
+config interface 'awg63'
+	option proto 'static'
+	option device '@awg3'
+
+config interface 'awg64'
+	option proto 'static'
+	option device '@awg4'
+
+config route
+	option interface 'awg0'
+	option target '0.0.0.0/0'
+	option metric '200'
+
+config route6
+	option interface 'awg60'
+	option target '::/0'
+	option metric '200'
+
+config route
+	option interface 'awg1'
+	option target '0.0.0.0/0'
+	option metric '300'
+
+config route6
+	option interface 'awg61'
+	option target '::/0'
+	option metric '300'
+
+config route
+	option interface 'awg2'
+	option target '0.0.0.0/0'
+	option metric '400'
+
+config route6
+	option interface 'awg62'
+	option target '::/0'
+	option metric '400'
+
+config route
+	option interface 'awg3'
+	option target '0.0.0.0/0'
+	option metric '500'
+
+config route6
+	option interface 'awg63'
+	option target '::/0'
+	option metric '500'
+
+config route
+	option interface 'awg4'
+	option target '0.0.0.0/0'
+	option metric '600'
+
+config route6
+	option interface 'awg64'
+	option target '::/0'
+	option metric '600'
+
+##############################################################################
 ## NSS ingress shaping helper (present in the base builder image)
 ##############################################################################
 

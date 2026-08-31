@@ -5,6 +5,11 @@
 ## Allow-*-to-WIREGUARD rule for its zone, or it is shadowed and dead.
 ## That was the bug in the old config — see the note at DoH/DoT below.
 
+## masq6 '0' and masq6_privacy '1' removed from every zone. masq6 '0' is the
+## fw4 default so it said nothing; masq6_privacy was never an fw4 option at all
+## — only trevorj's firewall.nat6 script ever read it, and fw4 replaced that.
+## Its surviving half is /etc/sysctl.d/22-ipv6-privacy.conf.
+
 config defaults
 	option input 'DROP'
 	option output 'ACCEPT'
@@ -49,7 +54,6 @@ config zone
 	option masq '1'
 	option masq_allow_invalid '1'
 	option masq6 '1'
-	option masq6_privacy '1'
 	option network 'wan wan6'
 
 config zone
@@ -59,8 +63,6 @@ config zone
 	option forward 'ACCEPT'
 	option mtu_fix '1'
 	option masq '0'
-	option masq6 '0'
-	option masq6_privacy '1'
 	option network 'svc'
 
 ## [CHANGED] input was ACCEPT. That let any appliance in your least-trusted
@@ -84,8 +86,6 @@ config zone
 	option forward 'ACCEPT'
 	option mtu_fix '1'
 	option masq '0'
-	option masq6 '0'
-	option masq6_privacy '1'
 	option network 'iot'
 
 ## MEDIA. input DROP like guest and iot — two TVs need DHCP, DNS and NTP from
@@ -97,8 +97,6 @@ config zone
 	option forward 'ACCEPT'
 	option mtu_fix '1'
 	option masq '0'
-	option masq6 '0'
-	option masq6_privacy '1'
 	option network 'media'
 
 config zone
@@ -108,8 +106,6 @@ config zone
 	option forward 'ACCEPT'
 	option mtu_fix '1'
 	option masq '0'
-	option masq6 '0'
-	option masq6_privacy '1'
 	option network 'guest'
 
 config zone
@@ -119,8 +115,6 @@ config zone
 	option forward 'ACCEPT'
 	option mtu_fix '1'
 	option masq '0'
-	option masq6 '0'
-	option masq6_privacy '1'
 	option network 'private'
 
 config zone
@@ -131,7 +125,10 @@ config zone
 	option mtu_fix '1'
 	option masq '1'
 	option masq_allow_invalid '1'
-	option network 'wg0 wg60 wg1 wg61 wg2 wg62 wg3 wg63 wg4 wg64'
+	## Both families listed. A disabled interface contributes nothing to a zone,
+	## so whichever set inject-secrets.sh left disabled is simply absent at
+	## runtime — nothing to edit when switching.
+	option network 'wg0 wg60 wg1 wg61 wg2 wg62 wg3 wg63 wg4 wg64 awg0 awg60 awg1 awg61 awg2 awg62 awg3 awg63 awg4 awg64'
 
 ##############################################################################
 ## Forwardings — this is what makes fail-closed structural
