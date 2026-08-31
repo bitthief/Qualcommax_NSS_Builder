@@ -2,7 +2,7 @@
 # the builder's feeds list:
 #
 #   FEEDS="src-git nss https://github.com/JuliusBairaktaris/nss-packages.git;edma-nss
-#          src-git awg https://github.com/amnezia-vpn/amneziawg-openwrt.git"
+#          src-git awg https://github.com/2Grey/awg-openwrt.git"
 #
 # Provides kmod-amneziawg, amneziawg-tools and luci-proto-amneziawg, all three
 # pinned in devices/common/config.
