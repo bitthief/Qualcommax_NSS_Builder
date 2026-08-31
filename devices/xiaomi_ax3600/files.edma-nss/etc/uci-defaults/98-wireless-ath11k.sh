@@ -130,39 +130,11 @@ common_vap() {  # common_vap <section>
 	uci -q batch <<-EOF
 		set wireless.$1.mode='ap'
 		set wireless.$1.encryption='sae-mixed'
-		## WPA3 extras you set by hand, carried so a reflash keeps them.
-		## They are also the prime suspect for the FT breakage noted below:
-		## FT-SAE with extended keys and GCMP-256 is where "Missing required
-		## pairwise in pull response" comes from. Harmless with 802.11r off; if
-		## you re-enable FT, remove these first and add them back one at a time.
 		set wireless.$1.gcmp256='1'
 		set wireless.$1.sae_ext_key='1'
 		set wireless.$1.doth='1'
 		set wireless.$1.ieee80211w='2'
-		## 802.11r OFF. FT between your own two VAPs was failing with
-		##   FT: Missing required pairwise in pull response
-		##   nl80211: kernel reports: key addition failed
-		##   handle_assoc_cb: STA ... not found
-		## and the client re-associated in a loop every ~30 s. The likely
-		## trigger is FT-SAE combined with gcmp256 + sae_ext_key, where the
-		## cipher does not survive the R0KH pull.
-		##
-		## On a single AP, FT only speeds the 2.4<->5 GHz hop on the same box —
-		## a few hundred milliseconds, against a roaming loop. usteer steers
-		## with 802.11v BSS Transition, which does not need FT at all.
-		## Revisit if you add a second AP AND the cipher stack settles.
 		set wireless.$1.ieee80211r='0'
-		## 802.11k OFF. It is what usteer uses to poll clients with beacon
-		## measurement requests, and on a SINGLE AP those reports are useless:
-		## neighbour reports exist to tell a client about other APs, and there
-		## are none. All they produced was BEACON-REQ-TX-STATUS /
-		## BEACON-RESP-RX at daemon.notice every 10 seconds per client,
-		## flooding the log.
-		##
-		## Band steering is unaffected — usteer steers with 802.11v BSS
-		## Transition Management, which stays on below. Turn this back on if
-		## you ever add a second AP, where the neighbour reports start earning
-		## their airtime.
 		set wireless.$1.ieee80211k='0'
 		set wireless.$1.wpa_disable_eapol_key_retries='1'
 		set wireless.$1.time_advertisement='2'
@@ -179,20 +151,6 @@ if [ -n "$R5G" ]; then
 		delete wireless.${R5G}.disabled
 		set wireless.${R5G}.country='${COUNTRY}'
 		set wireless.${R5G}.band='5g'
-		## Channel 100 instead of auto. In ETSI, 100-140 are DFS and hostapd's
-		## ACS will not consider them, which is why your acs_chan_bias was
-		## ignored and you never saw anything above 64. Naming one explicitly
-		## with doth='1' forces a CAC instead.
-		##
-		## Expect no beacon for 60 s while the radar scan runs (600 s if you
-		## ever pick 120-128 — weather radar). Watch it with:
-		##     logread -e DFS
-		## If CAC never completes, ath11k radar detection is not working on
-		## this build; fall back to channel 'auto', which will land on 36-48.
-		##
-		## This is also the only way to get a real HE160: the sole clean
-		## 160 MHz block in ETSI is 100-128, all of it DFS. On 'auto' you were
-		## silently getting 80 MHz.
 		set wireless.${R5G}.channel='${CH_5G}'
 		set wireless.${R5G}.htmode='${HTMODE_5G}'
 		set wireless.${R5G}.txpower='${TXPOWER_5G}'
@@ -213,11 +171,6 @@ if [ -n "$R5G" ]; then
 		set wireless.private_5g.device='${R5G}'
 		set wireless.private_5g.network='private'
 		set wireless.private_5g.ssid='${SSID_PRIVATE}'
-		## hidden REMOVED. A hidden SSID cannot be found by passive scan, so
-		## 802.11k neighbour reports and usteer's steering both degrade — the
-		## client has to probe for it on every band change. It was never real
-		## security either. Set hidden='1' again if you would rather keep it
-		## and accept worse roaming.
 		set wireless.private_5g.isolate='1'
 	EOF
 	common_vap guest_5g
@@ -230,30 +183,6 @@ if [ -n "$R24" ]; then
 		delete wireless.${R24}.disabled
 		set wireless.${R24}.country='${COUNTRY}'
 		set wireless.${R24}.band='2g'
-		## Channel 9, 40 MHz. This radio is the performance one — it is where
-		## the MEDIA AP would land — so it gets the wide channel and the IoT
-		## radio gets the narrow one.
-		##
-		## Control channel 9 is inside 1-11, so a US-market client that cannot
-		## scan above 11 still associates here at 20 MHz. Only the 40 MHz
-		## extension reaches into ETSI-only territory, and only for clients
-		## that can use it. That is why 9 rather than 11, 12 or 13.
-		##
-		## VERIFY THE SECONDARY AFTER FIRST BOOT. hostapd chooses HT40+ or
-		## HT40-, and that decides whether this radio occupies 9-13 (centre
-		## 2462) or 5-9 (centre 2442). Only the first is clean against the IoT
-		## radio on channel 3:
-		##     iw dev phy1-ap0 info | grep -E 'channel|center'
-		## center1 2462 -> HT40+, correct, nothing to do.
-		## center1 2442 -> HT40-, it has taken 5-9 and overlaps channel 3.
-		##                 Move the IoT radio to 1, or set htmode HE20 here.
-		##
-		## Band budget for when MEDIA arrives: 2.4 GHz gives ~83 MHz total, so
-		## one 40 MHz block plus one 20 MHz block plus guard is all that fits.
-		## A third network in this band has to share one of them.
-		## Channel 11 with HE40 -> HT40- -> occupies 7-11, centre channel 9 (2452),
-		## spanning 2432-2472. Clear of the IoT radio's 20 MHz on channel 1.
-		## US regdom removed 12-13, so HT40+ is not available up here anyway.
 		set wireless.${R24}.channel='9'
 		set wireless.${R24}.htmode='HE40'
 		set wireless.${R24}.txpower='20'
@@ -264,16 +193,6 @@ if [ -n "$R24" ]; then
 		set wireless.${R24}.he_su_beamformer='1'
 		set wireless.${R24}.he_su_beamformee='0'
 		set wireless.${R24}.he_mu_beamformer='1'
-		## REQUIRED for the 40 MHz to actually stick. Without it hostapd runs
-		## the 20/40 coexistence scan, finds neighbours in the secondary
-		## channel range — guaranteed in an apartment — and silently falls back
-		## to 20 MHz. iwinfo will keep reporting HE40 while iw reports
-		## width: 20 MHz, which is how this hid.
-		##
-		## Be clear about what this is: deliberately ignoring the coexistence
-		## rule. It takes 40 MHz whether or not the neighbours are using it, and
-		## degrades them accordingly. Defensible for one radio in a flat where
-		## you have measured the band; not something to enable everywhere.
 		set wireless.${R24}.noscan='1'
 		delete wireless.${R24}.acs_chan_bias
 EOF
@@ -295,23 +214,6 @@ EOF
 			set wireless.media_24.ssid='${SSID_MEDIA}'
 			set wireless.media_24.isolate='0'
 			set wireless.media_24.mode='ap'
-			## sae-mixed, NOT sae. This VAP carries TVs, and cheap TV firmware
-			## routinely cannot do WPA3 at all — SAE authentication times out
-			## and the set-top box reports whatever string it has to hand.
-			##
-			## Deliberately WITHOUT gcmp256 and sae_ext_key, which the 5 GHz
-			## VAPs carry: GCMP-256 and extended-key SAE narrow the cipher and
-			## AKM set to what only recent clients negotiate.
-			##
-			## And WITHOUT transition_disable. That flag tells a client to stop
-			## accepting WPA2 for this SSID PERMANENTLY, and clients remember
-			## it — so setting it once can lock a device out even after you
-			## loosen the encryption again. If a TV has already seen it, forget
-			## the network on the TV before retrying.
-			##
-			## The zone is what protects you here, not the cipher suite: media
-			## has input DROP, no path to wan, no forwarding to private, iot or
-			## guest, and its own tunnel.
 			set wireless.media_24.encryption='sae-mixed'
 			set wireless.media_24.ieee80211w='1'
 			set wireless.media_24.bss_transition='1'
