@@ -11,8 +11,8 @@ Port 1338
 ## when sshd starts, sshd exits and procd respawns it forever with no way in.
 ##
 ## The zone input policies give the same restriction and cannot crash-loop:
-## wan DROP, iot DROP, guest DROP, svc ACCEPT, private ACCEPT. sshd binds
-## 0.0.0.0:1338 and the firewall decides who reaches it.
+## wan DROP, iot DROP, media DROP, guest DROP, svc ACCEPT, private ACCEPT.
+## sshd binds 0.0.0.0:1338 and the firewall decides who reaches it.
 
 ## PasswordAuth 'off' + RootPasswordAuth 'off'
 PasswordAuthentication no

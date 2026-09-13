@@ -69,9 +69,9 @@ uci -q batch <<EOF
 delete wireless.${RADIO}.disabled
 set wireless.${RADIO}.country='${COUNTRY}'
 set wireless.${RADIO}.band='2g'
-set wireless.${RADIO}.channel='3'
+set wireless.${RADIO}.channel='1'
 set wireless.${RADIO}.htmode='HT20'
-set wireless.${RADIO}.txpower='20'
+set wireless.${RADIO}.txpower='30'
 set wireless.${RADIO}.distance='0'
 set wireless.${RADIO}.beacon_int='200'
 set wireless.${RADIO}.cell_density='0'
@@ -92,7 +92,7 @@ set wireless.iot_ap.wpa_disable_eapol_key_retries='1'
 set wireless.iot_ap.multicast_to_unicast_all='0'
 set wireless.iot_ap.disassoc_low_ack='0'
 set wireless.iot_ap.dtim_period='3'
-set wireless.iot_ap.max_inactivity='1800'
+set wireless.iot_ap.max_inactivity='3600'
 set wireless.iot_ap.disabled='1'
 EOF
 uci commit wireless

@@ -24,7 +24,7 @@ RECOVERY_SSID='OpenWRT-Recovery'
 RECOVERY_KEY='w1f1p4ssw0rd'
 RECOVERY_IP='192.168.99.1'
 AUTHORIZED_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHfXXoEQORAY7p3bHK5Doe3Zvh/G3yjHM5KTEH7PxQAy bitthief'
-COUNTRY='RO'
+COUNTRY='US'
 #############################################################################
 
 ## ---------------------------------------------------------------- network
